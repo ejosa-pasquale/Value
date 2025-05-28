@@ -1,2 +1,2 @@
-# AI-Josa
-Simulatore completo con tutte le modalità.
+# AI-Josa Value
+Conviene investire in un Punto di Ricarica
