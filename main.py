@@ -1,405 +1,193 @@
-# --- Inserimento veicoli singoli o per gruppi ---
-def input_veicoli():
-    modo = st.sidebar.radio("Modalità inserimento veicoli", ["Singolo", "Per Gruppi"])
-    veicoli = []
-    if modo == "Per Gruppi":
-        gruppi = st.sidebar.number_input("Numero gruppi", 1, 10, 2)
-        for i in range(gruppi):
-            with st.expander(f"Gruppo {i+1}"):
-                n = st.number_input("Numero veicoli", 1, 100, 3, key=f"n_{i}")
-                km = st.number_input("Km giornalieri", 0.0, 500.0, 60.0, key=f"km_{i}")
-                consumo = st.number_input("Consumo kWh/km", 0.1, 1.0, 0.18, 0.01, key=f"cons_{i}")
-                sosta = st.number_input("Ore sosta", 0.0, 24.0, 8.0, 0.25, key=f"sosta_{i}")
-                for j in range(n):
-                    veicoli.append({
-                        "nome": f"G{i+1}_Auto{j+1}",
-                        "energia": km * consumo * MARGINE_SICUREZZA_TEMPO,
-                        "sosta": sosta,
-                        "km": km,
-                        "consumo": consumo
-                    })
-    else:
-        n = st.sidebar.number_input("Numero veicoli singoli", 1, 100, 3)
-        for i in range(n):
-            with st.expander(f"Veicolo {i+1}"):
-                nome = st.text_input("Nome", f"Auto_{i+1}", key=f"nome_{i}")
-                km = st.number_input("Km giornalieri", 0.0, 500.0, 60.0, key=f"km_s_{i}")
-                consumo = st.number_input("Consumo kWh/km", 0.1, 1.0, 0.18, 0.01, key=f"cons_s_{i}")
-                sosta = st.number_input("Ore sosta", 0.0, 24.0, 8.0, 0.25, key=f"sosta_s_{i}")
-                veicoli.append({
-                    "nome": nome,
-                    "energia": km * consumo * MARGINE_SICUREZZA_TEMPO,
-                    "sosta": sosta,
-                    "km": km,
-                    "consumo": consumo
-                })
-    return veicoli
-
-
-
-def mostra(risultati, best, veicoli, budget, prezzo_benzina, consumo_l_100km, prezzo_privato, prezzo_pubblico):
-    import pandas as pd
-    import streamlit as st
-
-    st.subheader("📊 Configurazioni testate")
-    df = pd.DataFrame(risultati)
-    colonne = [c for c in ['AC_22', 'DC_20', 'DC_30', 'DC_40', 'DC_60', 'DC_90'] if c in df.columns]
-    altre_colonne = [c for c in df.columns if c not in colonne]
-    df = df[colonne + altre_colonne]
-    if "Copertura" in df.columns and "Entro Budget" in df.columns:
-        cols = df.columns.tolist()
-        cols.insert(cols.index("Copertura") + 1, cols.pop(cols.index("Entro Budget")))
-        df = df[cols]
-    st.dataframe(df.style.format("€{:,.0f}", subset=["Costo Colonnine", "Costo Installazione", "Totale"]))
-
-    if best:
-        st.subheader("✅ Configurazione ottimale")
-        st.write(f"Totale: €{best['Totale']:,.0f} | Budget: €{budget:,.0f}")
-        for c in best["colonnine"]:
-            st.write(f"{c['tipo']} → {', '.join(c['veicoli'])} – Ore rimaste: {c['ore']:.2f}")
-
-    st.subheader("📈 KPI")
-    GIORNI_ANNUI = 260
-    COSTO_INSTALLAZIONE_KW = 150
-
-    km_annui = sum([v["km"] for v in veicoli]) * GIORNI_ANNUI
-    energia_annua = sum([v["energia"] for v in veicoli]) * GIORNI_ANNUI
-    costo_benzina = km_annui / 100 * consumo_l_100km * prezzo_benzina
-    costo_privato = energia_annua * prezzo_privato
-    costo_pubblico = energia_annua * prezzo_pubblico
-    risparmio = costo_benzina - costo_privato
-    differenza_pubblico = costo_pubblico - costo_privato
-    guadagno_5a = differenza_pubblico * 5
-    tempo_ore = sum([v["energia"] / 22 for v in veicoli]) * GIORNI_ANNUI
-    roi = risparmio / (energia_annua * COSTO_INSTALLAZIONE_KW)
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("💰 Risparmio vs Benzina", f"€{risparmio:,.0f}")
-    col2.metric("🔌 Risparmio vs Pubblico", f"€{differenza_pubblico:,.0f}")
-    col3.metric("📈 ROI", f"{roi:.2f}")
-    st.metric("📊 Guadagno 5 anni", f"€{guadagno_5a:,.0f}")
-    st.metric("⏳ Tempo di ricarica (ore/anno)", f"{tempo_ore:.1f}")
-
-
 import streamlit as st
+import plotly.express as px
 import pandas as pd
 
-GIORNI_ANNUI = 260
-MARGINE_SICUREZZA_TEMPO = 1.2
-UTILIZZO_MASSIMO_DC = 0.85
-COSTO_INSTALLAZIONE_KW = 150
+st.set_page_config(page_title="AI-Josa - Valutazione Rendimento", layout="wide", page_icon="📊")
+st.title("📊 Valutazione Rendimento Punto di Ricarica")
 
-COLONNINE = {
-    "AC_22": {"potenza": 22, "costo": 1500, "overhead": 0.25},
-    "DC_30": {"potenza": 30, "costo": 9500, "overhead": 0.5},
-    "DC_60": {"potenza": 60, "costo": 21000, "overhead": 0.5},
-    "DC_90": {"potenza": 90, "costo": 26000, "overhead": 0.5}
-}
+# ---- CSS PERSONALIZZATO ----
+st.markdown("""
+<style>
+    .metric-card {
+        background: #f0f2f6;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 15px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .metric-title {
+        font-size: 14px;
+        color: #555;
+        margin-bottom: 5px;
+    }
+    .metric-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #2c3e50;
+    }
+    .stProgress > div > div > div {
+        background-color: #27ae60;
+    }
+    .stSlider > div > div > div {
+        background-color: #3498db;
+    }
+    .stExpander > div {
+        border: 1px solid #eee !important;
+        border-radius: 8px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-def crea_colonnine(config, ore_turno):
-    out = []
-    for tipo, n in config.items():
-        potenza = COLONNINE[tipo]["potenza"]
-        overhead = COLONNINE[tipo]["overhead"]
-        ore = ore_turno * (UTILIZZO_MASSIMO_DC if "DC" in tipo else 1)
-        for _ in range(n):
-            out.append({"tipo": tipo, "potenza": potenza, "overhead": overhead, "ore": ore, "veicoli": []})
-    return out
-
-def ottimizza(veicoli, budget, ore_turno):
-    risultati = []
-    migliore = None
-
-    for ac in range(1, 6):
-        for dc_tipo in ["DC_30", "DC_60", "DC_90"]:
-            for n_dc in range(0, 4):
-                config = {"AC_22": ac, dc_tipo: n_dc}
-                colonnine = crea_colonnine(config, ore_turno)
-                serviti = 0
-                for v in veicoli:
-                    for c in colonnine:
-                        t = v["energia"] / c["potenza"] + c["overhead"]
-                        if t <= v["sosta"] and t <= c["ore"]:
-                            c["ore"] -= t
-                            c["veicoli"].append(v["nome"])
-                            serviti += 1
-                            break
-                costo_col = sum(COLONNINE[t]["costo"] * n for t, n in config.items())
-                costo_inst = sum(COLONNINE[t]["potenza"] * n * COSTO_INSTALLAZIONE_KW for t, n in config.items())
-                totale = costo_col + costo_inst
-                risultati.append({
-                    "AC_22": ac, dc_tipo: n_dc, "Serviti": serviti,
-                    "Costo Colonnine": costo_col, "Installazione": costo_inst,
-                    "Totale": totale, "Copertura": "✅" if serviti == len(veicoli) else "❌",
-                    "Entro Budget": "✅" if totale <= budget else "❌"
-                })
-                if serviti == len(veicoli) and totale <= budget:
-                    if migliore is None or totale < migliore[-1]:
-                        migliore = (config, colonnine, costo_col, costo_inst, totale)
-
-    return risultati, migliore
-
-
-def modalita_comodita(veicoli, ore_turno):
-    n_tot = len(veicoli)
-    n_ac = int(n_tot * 0.7 + 0.999)
-    veicoli_ac = veicoli[:n_ac]
-    veicoli_restanti = veicoli[n_ac:]
-
-    config = {"AC_22": n_ac}
-
-    # Ora analizziamo chi tra i restanti ha bisogno di una DC
-    dc_usata = None
-    veicoli_dc = []
-
-    for v in veicoli_restanti:
-        tempo_ac = v["energia"] / COLONNINE["AC_22"]["potenza"] + COLONNINE["AC_22"]["overhead"]
-        if tempo_ac > v["sosta"]:
-            veicoli_dc.append(v)
-
-    # Se almeno un veicolo richiede DC, scegliamo la più piccola sufficiente
-    if veicoli_dc:
-        for dc_tipo in ["DC_20", "DC_30", "DC_40", "DC_60", "DC_90"]:
-            potenza = COLONNINE[dc_tipo]["potenza"]
-            overhead = COLONNINE[dc_tipo]["overhead"]
-            ore_massime = ore_turno * UTILIZZO_MASSIMO_DC
-            totale_tempo = sum(v["energia"] / potenza + overhead for v in veicoli_dc)
-
-            if totale_tempo <= ore_massime:
-                config[dc_tipo] = 1
-                dc_usata = dc_tipo
-                break
-
-    colonnine = crea_colonnine(config, ore_turno)
-    copre, _ = assegna(veicoli, colonnine)
-    c1 = sum(COLONNINE[t]["costo"] * n for t, n in config.items())
-    c2 = sum(COLONNINE[t]["potenza"] * n * COSTO_INSTALLAZIONE_KW for t, n in config.items())
-    totale = c1 + c2
-
+def calculate_charging_point_performance(params):
+    potenza_totale_kw = (
+        params['ac_22'] * 22 + params['dc_20'] * 20 + params['dc_30'] * 30 +
+        params['dc_40'] * 40 + params['dc_60'] * 60 + params['dc_90'] * 90
+    )
+    
+    energia_massima_giorno = potenza_totale_kw * params['ore_disponibili'] * (params['utilizzo_percentuale'] / 100)
+    energia_richiesta_totale = params['num_auto_giorno'] * params['kwh_per_auto']
+    energia_erogata_giorno = min(energia_massima_giorno, energia_richiesta_totale)
+    energia_erogata_annuo = energia_erogata_giorno * params['giorni_attivi']
+    
+    auto_servite = int(energia_erogata_giorno // params['kwh_per_auto'])
+    auto_non_servite = max(0, params['num_auto_giorno'] - auto_servite)
+    guadagno_annuo = energia_erogata_annuo * params['prezzo_vendita']
+    
+    costo_colonnine = (
+        params['ac_22'] * 1000 + params['dc_20'] * 8000 + params['dc_30'] * 12000 +
+        params['dc_40'] * 15000 + params['dc_60'] * 18000 + params['dc_90'] * 25000
+    )
+    costo_installazione = potenza_totale_kw * 150
+    costo_totale = costo_colonnine + costo_installazione
+    ROI = guadagno_annuo / costo_totale if costo_totale > 0 else 0
+    
+    # Calcolo tasso di utilizzo effettivo
+    tasso_utilizzo_effettivo = (energia_erogata_giorno / energia_massima_giorno) * 100 if energia_massima_giorno > 0 else 0
+    
     return {
-        **config,
-        "Totale Colonnine": sum(config.values()),
-        "Copertura": "✅" if copre else "❌",
-        "Costo Colonnine": c1,
-        "Costo Installazione": c2,
-        "Totale": totale,
-        "Configurazione": colonnine
+        'potenza_totale_kw': potenza_totale_kw,
+        'energia_erogata_annuo': energia_erogata_annuo,
+        'auto_servite': auto_servite,
+        'auto_non_servite': auto_non_servite,
+        'guadagno_annuo': guadagno_annuo,
+        'costo_totale': costo_totale,
+        'ROI': ROI,
+        'entro_budget': costo_totale <= params['budget'],
+        'tasso_utilizzo': tasso_utilizzo_effettivo
     }
 
-
-    for dc_tipo in ["DC_30", "DC_60", "DC_90"]:
-        potenza = COLONNINE[dc_tipo]["potenza"]
-        overhead = COLONNINE[dc_tipo]["overhead"]
-        ore_max = ore_turno * UTILIZZO_MASSIMO_DC
-        servibili = all((v["energia"] / potenza + overhead <= v["sosta"] and v["energia"] / potenza + overhead <= ore_max) for v in veicoli_dc)
-        if servibili:
-            config[dc_tipo] = 1
-            break
-
-    colonnine = crea_colonnine(config, ore_turno)
-    return config, colonnine, 0, 0, sum(COLONNINE[t]["costo"] * n + COLONNINE[t]["potenza"] * n * COSTO_INSTALLAZIONE_KW for t, n in config.items())
-
-def main():
-    st.set_page_config(page_title="AI-Josa", layout="wide")
-    st.title("⚡ AI-Josa – Simulatore Infrastruttura EV")
-
-    st.sidebar.selectbox("Modalità", ["Ottimizzazione", "Comodità", "Testa la tua infrastruttura", "Valuta il tuo investimento"])
-    ore_turno = st.sidebar.number_input("🕒 Ore colonnina/giorno", 1, 24, 8)
-    budget = st.sidebar.number_input("💶 Budget massimo (€)", 0, 200000, 20000, 1000)
-
-    COSTO_BENZINA = st.sidebar.number_input("⛽ Costo Benzina (€/L)", 0.5, 3.0, 1.80, 0.01)
-    CONSUMO_MEDIO_LITRI_100KM = st.sidebar.number_input("🚗 Consumo medio (L/100km)", 3.0, 20.0, 6.5, 0.1)
-    COSTO_PUBBLICO = st.sidebar.number_input("🔌 Prezzo Pubblico (€/kWh)", 0.2, 2.0, 0.60, 0.01)
-    COSTO_PRIVATO = st.sidebar.number_input("🏠 Prezzo Privato (€/kWh)", 0.1, 1.0, 0.25, 0.01)
-
-    modo_input = st.radio("Metodo di inserimento veicoli", ["Singolo", "Per Gruppi"])
-    veicoli = []
-    if modo_input == "Singolo":
-        n = st.number_input("Numero veicoli", 1, 100, 5)
-        for i in range(n):
-            with st.expander(f"Veicolo {i+1}"):
-                nome = st.text_input("Nome", f"Auto_{i+1}", key=f"nome_{i}")
-                km = st.number_input("Km giornalieri", 0.0, 500.0, 60.0, key=f"km_{i}")
-                consumo = st.number_input("Consumo kWh/km", 0.1, 1.0, 0.18, 0.01, key=f"cons_{i}")
-                sosta = st.number_input("Ore sosta", 0.0, 24.0, 8.0, 0.25, key=f"sosta_{i}")
-                energia = km * consumo * MARGINE_SICUREZZA_TEMPO
-                veicoli.append({"nome": nome, "km": km, "consumo": consumo, "sosta": sosta, "energia": energia})
-    else:
-        gruppi = st.number_input("Numero gruppi", 1, 10, 2)
-        for i in range(gruppi):
-            with st.expander(f"Gruppo {i+1}"):
-                n = st.number_input("Numero veicoli", 1, 100, 5, key=f"g_n_{i}")
-                km = st.number_input("Km giornalieri", 0.0, 500.0, 60.0, key=f"g_km_{i}")
-                consumo = st.number_input("Consumo kWh/km", 0.1, 1.0, 0.18, 0.01, key=f"g_cons_{i}")
-                sosta = st.number_input("Ore sosta", 0.0, 24.0, 8.0, 0.25, key=f"g_sosta_{i}")
-                for j in range(n):
-                    nome = f"G{i+1}_Auto{j+1}"
-                    energia = km * consumo * MARGINE_SICUREZZA_TEMPO
-                    veicoli.append({"nome": nome, "km": km, "consumo": consumo, "sosta": sosta, "energia": energia})
-    if modalita in ["Ottimizzazione", "Comodità"] and st.button("🚀 Esegui Simulazione"):
-        if modalita == "Ottimizzazione":
-            risultati, migliore = ottimizza(veicoli, budget, ore_turno)
-            st.subheader("📋 Tutte le combinazioni testate")
-            st.dataframe(pd.DataFrame(risultati))
-            if migliore:
-                config, colonnine, costo_col, costo_inst, totale = migliore
-        elif modalita == "Comodità":
-            config, colonnine, costo_col, costo_inst, totale = modalita_comodita(veicoli, ore_turno)
-
-        st.subheader("✅ Configurazione ottimale")
-        st.write(f"Totale: €{totale:,.0f} | Budget: €{budget:,.0f}")
-        for c in colonnine:
-            st.write(f"{c['tipo']} → {', '.join(c['veicoli']) if c['veicoli'] else 'nessuna'} – Ore rimaste: {c['ore']:.2f}")
-
-        km_annui = sum(v["km"] for v in veicoli) * GIORNI_ANNUI
-        kwh_annui = sum(v["energia"] for v in veicoli) * GIORNI_ANNUI
-        costo_benzina_km = COSTO_BENZINA * CONSUMO_MEDIO_LITRI_100KM / 100
-        risparmio_benzina = (costo_benzina_km - COSTO_PRIVATO * 0.18) * km_annui
-        risparmio_pubblica = (COSTO_PUBBLICO - COSTO_PRIVATO) * kwh_annui
-        guadagno_5_anni = risparmio_benzina * 5
-        roi = totale / risparmio_benzina if risparmio_benzina > 0 else 0
-
-        st.subheader("📈 KPI Economici")
-        st.metric("💰 Risparmio vs Benzina (€/anno)", f"{risparmio_benzina:,.0f}")
-        st.metric("💡 Risparmio vs Ricarica Pubblica (€/anno)", f"{risparmio_pubblica:,.0f}")
-        st.metric("📆 Guadagno su 5 Anni (€)", f"{guadagno_5_anni:,.0f}")
-        st.metric("📉 ROI (anni)", f"{roi:.2f}")
-
-    elif modalita == "Testa la tua infrastruttura":
-        st.subheader("🔍 Testa la tua infrastruttura")
-        ac = st.number_input("Numero AC_22", 0, 20, 2)
-        dc30 = st.number_input("Numero DC_30", 0, 10, 0)
-        dc60 = st.number_input("Numero DC_60", 0, 10, 0)
-        dc90 = st.number_input("Numero DC_90", 0, 10, 0)
-
-        if st.button("🔍 Analizza infrastruttura"):
-            config = {"AC_22": ac, "DC_30": dc30, "DC_60": dc60, "DC_90": dc90}
-            colonnine = crea_colonnine(config, ore_turno)
-            energia_totale = sum(v["energia"] for v in veicoli)
-            energia_erogata = 0.0
-            auto_servite = 0
-
-            for v in veicoli:
-                for c in colonnine:
-                    t = v["energia"] / c["potenza"] + c["overhead"]
-                    if t <= v["sosta"] and t <= c["ore"]:
-                        c["ore"] -= t
-                        energia_erogata += v["energia"]
-                        auto_servite += 1
-                        break
-
-            energia_esterna = energia_totale - energia_erogata
-
-            st.subheader("📊 Risultati")
-            st.metric("🚗 Veicoli serviti internamente", auto_servite)
-            st.metric("🔋 Energia Interna (kWh/anno)", f"{energia_erogata * GIORNI_ANNUI:.1f}")
-            st.metric("⚡ Energia Esterna Necessaria (kWh/anno)", f"{energia_esterna * GIORNI_ANNUI:.1f}")
-
-    elif modalita == "Valuta il tuo investimento":
-
-        st.header("💡 Valuta il tuo investimento")
-
-        tipo_colonnina = st.selectbox("Seleziona la colonnina", list(COLONNINE.keys()))
-        n_veicoli_giornalieri = st.number_input("Numero veicoli serviti al giorno", 1, 100, 5)
-        percentuale_media_batteria = st.slider("Percentuale media ricarica", 10, 100, 60)
-        taglia_media_batteria = st.number_input("Taglia media batteria (kWh)", 20, 150, 50)
-        prezzo_vendita = st.number_input("Prezzo di vendita energia (€/kWh)", 0.10, 2.00, 0.50)
-
-        energia_giorno = n_veicoli_giornalieri * (percentuale_media_batteria/100) * taglia_media_batteria
-        energia_anno = energia_giorno * GIORNI_ANNUI
-        ricavi_annui = energia_anno * prezzo_vendita
-
-        costo_colonnina = COLONNINE[tipo_colonnina]["costo"]
-        costo_installazione = COLONNINE[tipo_colonnina]["potenza"] * COSTO_INSTALLAZIONE_KW
-        totale = costo_colonnina + costo_installazione
-
-        st.metric("🔋 Energia venduta (kWh/anno)", f"{energia_anno:,.0f}")
-        st.metric("💰 Ricavi potenziali annui", f"€{ricavi_annui:,.0f}")
-        st.metric("💸 Costo totale (HW + installazione)", f"€{totale:,.0f}")
-
-
-    if __name__ == "__main__":
-    main()
-
-
-
-
-def modalita_ottimizzazione(veicoli, budget, ore_turno):
-    combinazioni_testate = []
-    best_config = None
-
-    for ac in range(0, 11):
-        for dc_tipo in ["DC_20", "DC_30", "DC_40", "DC_60", "DC_90"]:
-            for n_dc in range(0, 6):
-                config = {"AC_22": ac, dc_tipo: n_dc}
-                colonnine = crea_colonnine(config, ore_turno)
-                copre, serviti = assegna(veicoli, colonnine)
-                c1 = sum(COLONNINE[t]["costo"] * n for t, n in config.items())
-                c2 = sum(COLONNINE[t]["potenza"] * n * COSTO_INSTALLAZIONE_KW for t, n in config.items())
-                totale = c1 + c2
-                combinazioni_testate.append({
-                    **config,
-                    "Totale Colonnine": ac + n_dc,
-                    "Serviti": serviti,
-                    "Copertura": "✅" if copre else "❌",
-                    "Entro Budget": "✅" if totale <= budget else "❌",
-                    "Costo Colonnine": c1,
-                    "Costo Installazione": c2,
-                    "Totale": totale
-                })
-                if copre and totale <= budget:
-                    if best_config is None or totale < best_config["Totale"]:
-                        best_config = {
-                            "config": config,
-                            "colonnine": colonnine,
-                            "Costo Colonnine": c1,
-                            "Costo Installazione": c2,
-                            "Totale": totale
-                        }
-
-    return combinazioni_testate, best_config
-
-def valuta_investimento():
-    st.header("💡 Valuta il tuo investimento")
-    tipo_colonnina = st.selectbox("Colonnina", list(COLONNINE.keys()))
-    n_auto = st.number_input("Auto servite al giorno", 1, 100, 5)
-    percentuale = st.slider("Percentuale media ricarica", 10, 100, 60)
-    taglia = st.number_input("Taglia media batteria (kWh)", 20, 150, 50)
-    prezzo = st.number_input("Prezzo di vendita energia (€/kWh)", 0.10, 2.00, 0.50)
-    energia_annua = n_auto * (percentuale / 100) * taglia * GIORNI_ANNUI
-    ricavi = energia_annua * prezzo
-    costo_hw = COLONNINE[tipo_colonnina]["costo"]
-    costo_inst = COLONNINE[tipo_colonnina]["potenza"] * COSTO_INSTALLAZIONE_KW
-    totale = costo_hw + costo_inst
-    st.metric("🔋 Energia venduta (kWh/anno)", f"{energia_annua:,.0f}")
-    st.metric("💰 Ricavi annui", f"€{ricavi:,.0f}")
-    st.metric("💸 Costo totale", f"€{totale:,.0f}")
-
-def testa_infrastruttura(veicoli, config, ore_turno):
-    colonnine = crea_colonnine(config, ore_turno)
-    copre, serviti = assegna(veicoli, colonnine)
-    energia_caricata = sum(v["energia"] * GIORNI_ANNUI for v in veicoli if v["nome"] in serviti)
-    energia_totale = sum(v["energia"] * GIORNI_ANNUI for v in veicoli)
-    energia_esterna = energia_totale - energia_caricata
-    st.subheader("📊 Risultati simulazione")
-    st.metric("Veicoli serviti", len(serviti))
-    st.metric("Energia interna (kWh/anno)", f"{energia_caricata:,.0f}")
-    st.metric("Energia esterna necessaria", f"{energia_esterna:,.0f}")
-
-def mostra_kpi(veicoli):
-    km = sum(v["km"] for v in veicoli) * GIORNI_ANNUI
-    kwh = sum(v["energia"] for v in veicoli) * GIORNI_ANNUI
-    cost_benzina = (km / 14) * 1.9
-    cost_privato = kwh * 0.25
-    cost_pubblico = kwh * 0.80
-    risparmio = cost_benzina - cost_privato
-    pubblico = cost_pubblico - cost_privato
-    guadagno_5a = pubblico * 5
-    tempo_ore = sum(v["energia"] / 22 for v in veicoli) * GIORNI_ANNUI
-    roi = risparmio / (sum(v["energia"] for v in veicoli) * COSTO_INSTALLAZIONE_KW)
-    st.subheader("📈 KPI")
-    st.metric("💰 Risparmio vs Benzina", f"€{risparmio:,.0f}")
-    st.metric("🔌 Risparmio vs Pubblico", f"€{pubblico:,.0f}")
-    st.metric("📊 Guadagno 5 anni", f"€{guadagno_5a:,.0f}")
-    st.metric("⏳ Tempo di ricarica (ore/anno)", f"{tempo_ore:.1f}")
-    st.metric("📈 ROI", f"{roi:.2f}")
+# ---- INTERFACCIA ----
+st.subheader("Parametri di Utilizzo")
+    
+with st.expander("Parametri base", expanded=True):
+    num_auto_giorno = st.slider("Auto previste in ricarica al giorno", 1, 1000, 50, step=5)
+    kwh_per_auto = st.slider("Energia media richiesta per auto (kWh)", 5, 100, 30, step=5)
+    tempo_ricarica_media = st.slider("Tempo medio di ricarica per auto (ore)", 0.5, 12.0, 2.0, step=0.5)
+    
+with st.expander("Configurazione temporale", expanded=False):
+    ore_disponibili = st.slider("Ore operative al giorno", 1, 24, 8, step=1)
+    giorni_attivi = st.slider("Giorni operativi all'anno", 1, 365, 260, step=5)
+    
+with st.expander("Parametri economici", expanded=False):
+    prezzo_vendita = st.slider("Prezzo di vendita energia (€/kWh)", 0.10, 1.00, 0.25, step=0.05)
+    utilizzo_percentuale = st.slider("Probabilità di utilizzo dell'infrastruttura (%)", 10, 100, 85, step=5)
+    budget = st.number_input("Investimento Iniziale (€)", 0, 500000, 20000, step=1000)
+    
+st.subheader("Configurazione Colonnine")
+with st.expander("Seleziona tipologie di colonnine", expanded=True):
+    ac_22 = st.slider("AC_22 (22 kW)", 0, 50, 2)
+    dc_20 = st.slider("DC_20 (20 kW)", 0, 20, 0)
+    dc_30 = st.slider("DC_30 (30 kW)", 0, 20, 0)
+    dc_40 = st.slider("DC_40 (40 kW)", 0, 20, 0)
+    dc_60 = st.slider("DC_60 (60 kW)", 0, 20, 0)
+    dc_90 = st.slider("DC_90 (90 kW)", 0, 20, 0)
+    
+if st.button("📊 Calcola Rendimento Punto di Ricarica", type="primary"):
+    params = {
+        'num_auto_giorno': num_auto_giorno,
+        'kwh_per_auto': kwh_per_auto,
+        'tempo_ricarica_media': tempo_ricarica_media,
+        'ore_disponibili': ore_disponibili,
+        'giorni_attivi': giorni_attivi,
+        'prezzo_vendita': prezzo_vendita,
+        'utilizzo_percentuale': utilizzo_percentuale,
+        'budget': budget,
+        'ac_22': ac_22,
+        'dc_20': dc_20,
+        'dc_30': dc_30,
+        'dc_40': dc_40,
+        'dc_60': dc_60,
+        'dc_90': dc_90
+    }
+    
+    risultati = calculate_charging_point_performance(params)
+    
+    st.success("Analisi di rendimento completata!")
+    st.divider()
+    
+    # Metriche principali
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Potenza totale installata", f"{risultati['potenza_totale_kw']} kW")
+    col2.metric("Energia erogata annuale", f"{risultati['energia_erogata_annuo']:,.0f} kWh")
+    col3.metric("Auto servite giornaliere", f"{risultati['auto_servite']}/{num_auto_giorno}")
+    
+    col4, col5, col6 = st.columns(3)
+    col4.metric("Ricavo annuo stimato", f"€{risultati['guadagno_annuo']:,.0f}")
+    col5.metric("Costo totale impianto", f"€{risultati['costo_totale']:,.0f}", 
+               "entro budget" if risultati['entro_budget'] else "sopra budget")
+    col6.metric("Tasso di utilizzo effettivo", f"{risultati['tasso_utilizzo']:.1f}%")
+    
+    # ROI e Payback
+    st.divider()
+    st.subheader("Indicatori Economici")
+    
+    roi_col, payback_col, util_col = st.columns(3)
+    roi_col.metric("ROI (Return on Investment)", f"{risultati['ROI']:.2f}")
+    payback_col.metric("Periodo di Payback", f"{(1/risultati['ROI'] if risultati['ROI']>0 else 0):.1f} anni")
+    util_col.metric("Efficienza Impianto", f"{risultati['tasso_utilizzo']:.1f}%")
+    
+    # Visualizzazione grafica
+    with st.expander("Visualizzazione Dettagliata", expanded=True):
+        fig_col1, fig_col2 = st.columns(2)
+        
+        with fig_col1:
+            df_auto = pd.DataFrame({
+                'Categoria': ['Auto servite', 'Auto non servite'],
+                'Valore': [risultati['auto_servite'], risultati['auto_non_servite']]
+            })
+            fig = px.pie(df_auto, values='Valore', names='Categoria', 
+                        title="Distribuzione Auto Servite/Non Servite")
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with fig_col2:
+            months = range(1, 13)
+            monthly_energy = [risultati['energia_erogata_annuo'] / 12 * (0.9 + 0.2 * (i % 12)/12) for i in months]
+            df_monthly = pd.DataFrame({'Mese': months, 'Energia (kWh)': monthly_energy})
+            fig = px.line(df_monthly, x='Mese', y='Energia (kWh)', title="Energia Erogata Mensile Stimata")
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Consigli di ottimizzazione
+    with st.expander("Raccomandazioni", expanded=True):
+        if risultati['tasso_utilizzo'] > 90:
+            st.warning("⚠️ L'infrastruttura è sovrautilizzata. Considera:")
+            st.markdown("- Aggiungere più colonnine")
+            st.markdown("- Aumentare la potenza installata")
+            st.markdown("- Estendere le ore operative")
+        
+        elif risultati['tasso_utilizzo'] < 50:
+            st.info("ℹ️ L'infrastruttura è sottoutilizzata. Potresti:")
+            st.markdown("- Ridurre il numero di colonnine")
+            st.markdown("- Cercare di attrarre più clienti")
+            st.markdown("- Offrire tariffe promozionali")
+        
+        if not risultati['entro_budget']:
+            st.error("❌ L'investimento supera il budget. Considera:")
+            st.markdown("- Ridurre il numero di colonnine DC ad alta potenza")
+            st.markdown("- Optare per più colonnine AC a minor costo")
+            st.markdown("- Frazionare l'investimento in più fasi")
+        
+        if risultati['auto_non_servite'] > 0:
+            st.warning(f"🔌 {risultati['auto_non_servite']} auto al giorno non possono essere servite. Soluzioni:")
+            st.markdown("- Aumentare la potenza delle colonnine")
+            st.markdown("- Ottimizzare i tempi di ricarica")
+            st.markdown("- Implementare un sistema di prenotazione")
