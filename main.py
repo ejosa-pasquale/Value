@@ -360,7 +360,6 @@ with tab2:
             dc_60_tab2 = st.number_input(get_text("dc_60_chargers"), 0, 10, 0, key="tab2_dc60", help=get_text("dc_60_chargers_help"))
         with cols_infra[2]:
             dc_90_tab2 = st.number_input(get_text("dc_90_chargers"), 0, 10, 0, key="tab2_dc90", help=get_text("dc_90_chargers_help"))
-        ore_disponibili_tab2 = st.slider(get_text("daily_charger_hours"), 1, 24, 8, step=1, key="tab2_ore", help=get_text("daily_charger_hours_help"))
 
     with st.expander(get_text("economic_investment_params"), expanded=False):
         st.markdown(get_text("economic_investment_intro"))
