@@ -23,10 +23,8 @@ def get_text(key):
         "daily_km_test_help": "Distanza media percorsa al giorno.",
         "avg_consumption_test": "Consumo (Wh/Km)",
         "avg_consumption_test_help": "Consumo medio del veicolo (es. 180 Wh/Km = 18 kWh/100km).",
-        "available_stop_hours_test": "Ore di Sosta Disponibili", # MANTENUTO SOLO PER RETROCOMPATIBILITÀ DELLE CHIAVI
-        "available_stop_hours_test_help": "Durata totale della sosta disponibile per la ricarica.",
-        "orario_ingresso": "Orario di Ingresso (h)", # NUOVA CHIAVE
-        "orario_uscita": "Orario di Uscita (h)", # NUOVA CHIAVE
+        "orario_ingresso": "Orario di Ingresso (h)", 
+        "orario_uscita": "Orario di Uscita (h)", 
         "existing_infra_config": "Configurazione Infrastruttura Esistente",
         "existing_infra_intro": "Definisci il numero di colonnine per tipo.",
         "ac_11_chargers": "Colonnine AC 11 kW", "ac_11_chargers_help": "Quantità di colonnine AC 11kW",
@@ -104,24 +102,20 @@ def get_text(key):
     }
     return translations.get(key, key)
 
-# Variabili di configurazione fittizie per COLONNINE_TAB1 e durata minima
+# Variabili di configurazione fittizie
 COLONNINE_TAB1 = {'DC_20': {'potenza_effettiva': 20}, 'DC_40': {'potenza_effettiva': 40}}
 MIN_DURATA_RICARICA = 0.5  # Durata minima di ricarica in ore (30 minuti)
 
 # ====================================================================
-# FUNZIONE DI SIMULAZIONE AGGIORNATA
+# FUNZIONE DI SIMULAZIONE AGGIORNATA (FIX APPLICATO QUI)
 # ====================================================================
 
 def calculate_infrastructure_test(veicoli, colonnine_config, costo_energia_interna,
                                   prezzo_energia_pubblica, ore_disponibili, costi_investimento_colonnine):
     """
     Simula la ricarica per una data configurazione di infrastruttura e flotta veicoli.
-    Vincoli chiave:
-    1. Colonnina carica 1 auto per volta (gestito da available_slots).
-    2. Un'auto non cerca più colonnine contemporaneamente (gestito dal break nel ciclo).
-    3. Usa orari di ingresso/uscita effettivi.
     """
-    MIN_INTERVALLO_RICARICA_SIM = 0.5  # 30 minuti tra due ricariche sulla stessa stazione
+    MIN_INTERVALLO_RICARICA_SIM = 0.5 
 
     colonnine_instances = []
     power_map = {
@@ -138,8 +132,9 @@ def calculate_infrastructure_test(veicoli, colonnine_config, costo_energia_inter
                 'tipo': tipo,
                 'nome': f"{tipo}_{i+1}",
                 'potenza': potenza,
-                'available_slots': [(0.0, float(ore_disponibili))], # Intervalli liberi (start, end)
-                'bookings': [] # Prenotazioni effettuate
+                # <<< FIX: Disponibilità colonnina fissata a 24h per lo scheduling >>>
+                'available_slots': [(0.0, 24.0)], # Intervalli liberi (start, end)
+                'bookings': [] 
             })
 
     risultati = {
@@ -155,120 +150,96 @@ def calculate_infrastructure_test(veicoli, colonnine_config, costo_energia_inter
     for v in veicoli_for_sim:
         v['energia_rimanente'] = v['energia_richiesta']
         v['caricata_completamente'] = False
-        # AGGIORNAMENTO LOGICA: Usa gli orari di ingresso e uscita reali
         v['sosta_start'] = v.get('ingresso', 0.0)
-        v['sosta_end'] = v.get('uscita', v.get('sosta', 0.0)) # Fallback su 'sosta' se ingresso/uscita non ci sono
-        # Flag per tracciare se un'auto ha già una prenotazione su una colonnina
+        v['sosta_end'] = v.get('uscita', v.get('sosta', 0.0)) 
         v['colonnina_assegnata'] = None 
 
-    # Ordina i veicoli per urgenza (prima chi deve partire prima)
     veicoli_for_sim.sort(key=lambda x: x['sosta_end'])
 
-    # Ciclo di simulazione: assegna ricariche finché possibile
     max_sim_iterations = len(veicoli_for_sim) * len(colonnine_instances) * 24
 
     for _ in range(max_sim_iterations):
         something_charged_in_this_iteration = False
 
-        # Prendi solo i veicoli che necessitano ancora di ricarica
         vehicles_needing_charge = sorted(
-            [v for v in veicoli_for_sim if v['energia_rimanente'] > 0],
+            [v for v in veicoli_for_sim if v['energia_rimanente'] > 0.01],
             key=lambda x: (x['sosta_end'], -x['energia_rimanente'])
         )
 
         if not vehicles_needing_charge:
-            break # Tutte le auto sono caricate
+            break
 
         for vehicle in vehicles_needing_charge:
-            if vehicle['energia_rimanente'] <= 0:
-                continue
+            best_option = None
 
-            best_option = None # (colonnina_instance, charge_start, charge_end, energy_to_charge)
-
-            # Itera su tutte le colonnine per trovare il miglior slot
             for colonnina in colonnine_instances:
-                # OPTIONAL: Se un veicolo deve usare una sola colonnina per TUTTE le sue ricariche (logica più restrittiva)
-                # if vehicle['colonnina_assegnata'] and vehicle['colonnina_assegnata'] != colonnina['nome']:
-                #     continue
-
                 for slot_idx, (slot_start, slot_end) in enumerate(colonnina['available_slots']):
-                    # Calcola l'intersezione di tempo tra veicolo e slot colonnina
+                    
                     effective_charge_start = max(vehicle['sosta_start'], slot_start)
                     effective_charge_end = min(vehicle['sosta_end'], slot_end)
 
-                    # Aggiusta per l'intervallo minimo se c'è una prenotazione precedente su questa stazione
+                    # Aggiusta per l'intervallo minimo
                     if colonnina['bookings']:
-                        last_booking_end = max(b['fine'] for b in colonnina['bookings'] if b['fine'] <= effective_charge_start)
+                        # Trova la fine dell'ultima ricarica completata prima di effective_charge_start
+                        last_booking_end_list = [b['fine'] for b in colonnina['bookings'] if b['fine'] <= effective_charge_start]
+                        last_booking_end = max(last_booking_end_list) if last_booking_end_list else effective_charge_start - 1
+                        
                         effective_charge_start = max(effective_charge_start, last_booking_end + MIN_INTERVALLO_RICARICA_SIM)
                     
-                    # *****************************************************************
-                    # IL TUO BLOCCO DI CODICE RIPRENDE QUI, CON LE VARIABILI GIA' AGGIORNATE
-                    # *****************************************************************
-
                     if effective_charge_end - effective_charge_start >= MIN_DURATA_RICARICA:
                         potential_duration = effective_charge_end - effective_charge_start
                         energy_possible_in_slot = colonnina['potenza'] * potential_duration
                         
                         energy_to_attempt = min(vehicle['energia_rimanente'], energy_possible_in_slot)
 
-                        if energy_to_attempt > 0:
-                            # Prioritize options that charge more energy, or use higher power stations
+                        if energy_to_attempt > 0.01: # Check for meaningful energy
                             if not best_option or energy_to_attempt > best_option[3]:
                                 best_option = (colonnina, effective_charge_start, effective_charge_end, energy_to_attempt)
 
             if best_option:
                 colonnina_to_use, charge_start, charge_end, energy_to_charge = best_option
                 
-                # Calculate actual duration needed for the charged energy
                 actual_duration_needed = energy_to_charge / colonnina_to_use['potenza']
-                
-                # Ensure final duration respects minimum charge duration and slot limits
-                final_charge_duration = max(MIN_DURATA_RICARICA, actual_duration_needed)
+                final_charge_duration = actual_duration_needed # User all available time for the required energy
+
+                # Ensure final charge duration does not exceed the available slot time
                 final_charge_duration = min(final_charge_duration, charge_end - charge_start)
 
-                # If the vehicle needs very little energy to finish, allow a shorter charge
-                if vehicle['energia_rimanente'] <= colonnina_to_use['potenza'] * MIN_DURATA_RICARICA:
-                    final_charge_duration = min(final_charge_duration, vehicle['energia_rimanente'] / colonnina_to_use['potenza'])
-                    if final_charge_duration < 0.01: # Avoid negligible charges
-                        continue
-
-                if final_charge_duration > 0.01: # Ensure a meaningful charge
+                # Ensure final charge duration respects minimum duration or is negligible if car is full
+                if final_charge_duration < MIN_DURATA_RICARICA and vehicle['energia_rimanente'] > energy_to_charge * 1.01:
+                    # If vehicle needs more energy, but the slot is too short, we skip this assignment for a small slot
+                    continue
+                
+                if final_charge_duration > 0.01: 
                     actual_energy_charged = colonnina_to_use['potenza'] * final_charge_duration
                     vehicle['energia_rimanente'] -= actual_energy_charged
                     something_charged_in_this_iteration = True
                     
-                    # Traccia la colonnina usata da questo veicolo (per logica optional)
                     if not vehicle['colonnina_assegnata']:
                          vehicle['colonnina_assegnata'] = colonnina_to_use['nome']
                          
                     # Update the colonnina's available slots
-                    new_slots_for_colonnina = []
-                    # Calcola la fine effettiva della ricarica per lo scheduling
                     charge_end_time = charge_start + final_charge_duration
-                    # Calcola il tempo di rilascio slot (fine ricarica + intervallo minimo)
                     release_time = charge_end_time + MIN_INTERVALLO_RICARICA_SIM
                     
-                    # Rimuovi lo slot utilizzato e aggiungi gli slot residui
-                    for s_idx, (s_start, s_end) in enumerate(colonnina_to_use['available_slots']):
-                        # Se lo slot inizia prima e finisce dopo la ricarica
-                        if s_start < charge_start and s_end > release_time:
-                            new_slots_for_colonnina.append((s_start, charge_start)) # Parte prima della ricarica
-                            new_slots_for_colonnina.append((release_time, s_end)) # Parte dopo l'intervallo
-                        # Se lo slot è interamente prima della ricarica
-                        elif s_end <= charge_start:
-                             new_slots_for_colonnina.append((s_start, s_end))
-                        # Se lo slot è interamente dopo la ricarica
-                        elif s_start >= release_time:
-                             new_slots_for_colonnina.append((s_start, s_end))
-                        # Caso in cui la ricarica taglia solo la fine dello slot
-                        elif s_start < charge_start and s_end <= release_time and s_end > charge_start:
-                             new_slots_for_colonnina.append((s_start, charge_start))
-                        # Caso in cui la ricarica taglia solo l'inizio dello slot
-                        elif s_start >= charge_start and s_start < release_time and s_end > release_time:
-                             new_slots_for_colonnina.append((release_time, s_end))
-                        # Caso in cui la ricarica occupa l'intero slot (o quasi)
-                        # Altrimenti lo slot viene completamente rimosso dal ciclo di iterazione implicito
+                    new_slots_for_colonnina = []
                     
+                    for s_start, s_end in colonnina_to_use['available_slots']:
+                         if s_end <= charge_start or s_start >= release_time:
+                            # Slot is completely before or after the booking + release time
+                            new_slots_for_colonnina.append((s_start, s_end))
+                         elif s_start < charge_start and s_end > release_time:
+                            # Slot is split into two (before and after)
+                            new_slots_for_colonnina.append((s_start, charge_start))
+                            new_slots_for_colonnina.append((release_time, s_end))
+                         elif s_start < charge_start and s_end <= release_time and s_end > charge_start:
+                             # Slot is cut only at the end (before)
+                             new_slots_for_colonnina.append((s_start, charge_start))
+                         elif s_start >= charge_start and s_start < release_time and s_end > release_time:
+                             # Slot is cut only at the start (after)
+                             new_slots_for_colonnina.append((release_time, s_end))
+                         # Otherwise, the slot is consumed/removed
+
                     colonnina_to_use['available_slots'] = sorted([slot for slot in new_slots_for_colonnina if slot[1] - slot[0] >= 0.01], key=lambda x: x[0])
 
 
@@ -291,25 +262,22 @@ def calculate_infrastructure_test(veicoli, colonnine_config, costo_energia_inter
                         'energia': actual_energy_charged,
                         'tipo_colonnina': colonnina_to_use['tipo']
                     })
-                    # *****************************************************************
-                    # AGGIORNAMENTO LOGICA: ESCI DAL LOOP DELLE COLONNINE DOPO L'ASSEGNAZIONE
-                    # Questo garantisce che un'auto non cerchi più colonnine in parallelo.
-                    # *****************************************************************
+                    
+                    # Garantisce 1 ricarica per iterazione
                     break 
 
         if not something_charged_in_this_iteration:
-            break # Non è stato possibile assegnare altre ricariche
+            break 
 
     # Final aggregation for results
     risultati['energia_totale'] = sum(v['energia_richiesta'] for v in veicoli_for_sim)
     risultati['energia_caricata'] = sum(sum(b['energia'] for b in col['bookings']) for col in colonnine_instances)
     risultati['energia_esterna'] = risultati['energia_totale'] - risultati['energia_caricata']
     
-    # Aggiungi tolleranza per float
     risultati['auto_caricate_completamente'] = sum(1 for v in veicoli_for_sim if v['energia_rimanente'] <= 0.01) 
 
     if risultati['energia_esterna'] > 0:
-        risultati['tempo_esterno_stimato'] = (risultati['energia_esterna'] / 11) * 1.5 # Simplified assumption
+        risultati['tempo_esterno_stimato'] = (risultati['energia_esterna'] / 11) * 1.5 
         risultati['costo_ricariche_esterne'] = risultati['energia_esterna'] * prezzo_energia_pubblica
 
     total_colonnine_capacity_kwh = sum(col['potenza'] * ore_disponibili for col in colonnine_instances)
@@ -321,7 +289,6 @@ def calculate_infrastructure_test(veicoli, colonnine_config, costo_energia_inter
     risparmio_giornaliero = costo_totale_esterno_se_nessuna_colonnina - risultati['costo_ricariche_esterne'] - risultati['costo_operativo_interno']
     risultati['risparmio_annuo_stimato'] = risparmio_giornaliero * 365
 
-    # Calculate total initial investment for Tab 2
     total_investment_tab2 = sum(quantita * costi_investimento_colonnine.get(tipo, 0) for tipo, quantita in colonnine_config.items())
     risultati['investimento_totale_iniziale'] = total_investment_tab2
 
@@ -332,7 +299,7 @@ def calculate_infrastructure_test(veicoli, colonnine_config, costo_energia_inter
     return risultati
 
 # ====================================================================
-# INTERFACCIA UTENTE (STREAMLIT)
+# INTERFACCIA UTENTE (STREAMLIT) - NESSUNA MODIFICA NECESSARIA QUI
 # ====================================================================
 
 # Configurazione della pagina (opzionale)
@@ -360,16 +327,14 @@ with tab2:
                     nome = st.text_input(get_text("vehicle_name").format(i=''), f"Auto_{i+1}", key=f"tab2_nome_{i}")
                     km = st.number_input(get_text("daily_km_test"), 0, 500, 100, step=10, key=f"tab2_km_{i}", help=get_text("daily_km_test_help"))
                     
-                    # Consumo (Wh/Km)
                     consumo_wh_km = st.number_input(get_text("avg_consumption_test"), 100, 300, 180, step=10, key=f"tab2_cons_{i}", help=get_text("avg_consumption_test_help"))
                     
-                    # AGGIORNAMENTO: Orari di Ingresso e Uscita (sostituzione dello slider 'sosta')
                     orario_ingresso = st.number_input(get_text("orario_ingresso"), 0.0, 24.0, 8.0, step=0.5, key=f"tab2_ingresso_{i}", help="Ora di arrivo del veicolo (es. 8.5 per 8:30)")
                     orario_uscita = st.number_input(get_text("orario_uscita"), 0.0, 24.0, 17.0, step=0.5, key=f"tab2_uscita_{i}", help="Ora di partenza del veicolo (es. 17.0 per 17:00)")
 
-                    consumo_kwh_km = consumo_wh_km / 1000 # Conversione in kWh/km
+                    consumo_kwh_km = consumo_wh_km / 1000 
                     energia_richiesta = km * consumo_kwh_km
-                    sosta_calcolata = max(0.0, orario_uscita - orario_ingresso) # Durata sosta in ore
+                    sosta_calcolata = max(0.0, orario_uscita - orario_ingresso) 
 
                     if orario_uscita <= orario_ingresso:
                         st.error("L'uscita deve essere successiva all'ingresso.")
@@ -444,7 +409,6 @@ with tab2:
 
             risultati_tab2 = st.session_state.risultati_tab2
 
-            # Visualizzazione Riepilogo
             col1_tab2, col2_tab2, col3_tab2 = st.columns(3)
             col1_tab2.metric(get_text("total_energy_requested"), f"{risultati_tab2['energia_totale']:.1f} kWh", help=get_text("total_energy_requested_help"))
             col2_tab2.metric(get_text("internal_energy_charged_test"), f"{risultati_tab2['energia_caricata']:.1f} kWh", f"{(risultati_tab2['energia_caricata']/risultati_tab2['energia_totale']*100 if risultati_tab2['energia_totale']>0 else 0):.1f}%", help=get_text("internal_energy_charged_test_help"))
@@ -455,7 +419,7 @@ with tab2:
             col5_tab2.metric(get_text("daily_external_charge_cost"), f"€{risultati_tab2['costo_ricariche_esterne']:.2f}", help=get_text("daily_external_charge_cost_help"))
             col6_tab2.metric(get_text("avg_charger_utilization_rate"), f"{risultati_tab2['tasso_utilizzo']:.1f}%", help=get_text("avg_charger_utilization_rate_help"))
 
-            col7_tab2, col8_tab2, _ = st.columns(3) # Colonna 9 intenzionalmente vuota
+            col7_tab2, col8_tab2, _ = st.columns(3)
             col7_tab2.metric(get_text("fully_charged_cars"), f"{risultati_tab2['auto_caricate_completamente']}/{risultati_tab2['num_veicoli_totali']}", help=get_text("fully_charged_cars_help"))
             col8_tab2.metric(get_text("internal_operating_cost"), f"€{risultati_tab2['costo_operativo_interno']:.2f}/{get_text('day_label')}", help=get_text("internal_operating_cost_help"))
             
@@ -463,7 +427,6 @@ with tab2:
             col_roi_1.metric(get_text("estimated_annual_savings_test"), f"€{risultati_tab2['risparmio_annuo_stimato']:.2f}", help=get_text("estimated_annual_savings_test_help"))
             col_roi_2.metric(get_text("roi_test"), f"{risultati_tab2['ROI']:.1f}%", help=get_text("roi_test_help"))
 
-            # Visualizzazione Dettagli (Tabs)
             tab2_1, tab2_2, tab2_3, tab2_4 = st.tabs([get_text("charger_utilization_details"), get_text("vehicle_charge_status_test"), get_text("energy_req_vs_charged_test"), get_text("operating_costs_analysis_test")])
 
             with tab2_1:
@@ -552,7 +515,6 @@ with tab2:
                             "InternalEnergy": v["energia_richiesta"] - v["energia_rimanente"]
                         } for v in st.session_state.risultati_tab2['veicoli_simulati']
                     ])
-                    # Top 10 veicoli per energia richiesta
                     df_veicoli_charged_tab2 = df_veicoli_charged_tab2.sort_values(by="EnergyRequested", ascending=False).head(10)
 
                     if not df_veicoli_charged_tab2.empty:
