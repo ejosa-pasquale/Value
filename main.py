@@ -1,1555 +1,609 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from math import ceil, floor
-from datetime import datetime, timedelta
 from collections import defaultdict
-import random
+from datetime import datetime, timedelta
 
-# Page configuration
-st.set_page_config(page_title="AI-JoSa", layout="wide", page_icon="⚡")
+# ====================================================================
+# VARIABILI E FUNZIONI DI CONFIGURAZIONE (ADATTALE ALLE TUE ESIGENZE)
+# ====================================================================
 
-# --- Custom Streamlit Theming ---
-st.markdown("""
-<style>
-    .stApp {
-        background-color: #E0F2F7; 
-        color: #2E4053; 
-    }
-    .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
-        font-size: 1.1em;
-        font-weight: bold;
-    }
-    .stTabs [data-baseweb="tab-list"] button {
-        background-color: #A9D9D0; 
-        border-radius: 5px 5px 0 0;
-        margin-right: 2px;
-        padding: 10px 15px;
-    }
-    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-        background-color: #6CBAB7; 
-        color: white;
-    }
-    h1, h2, h3, h4, h5, h6 {
-        color: #1A5276; 
-    }
-    .stButton>button {
-        background-color: #3498DB; 
-        color: white;
-        border-radius: 8px;
-        border: none;
-        padding: 10px 20px;
-        font-size: 16px;
-        cursor: pointer;
-    }
-    .stButton>button:hover {
-        background-color: #2874A6;
-    }
-    .stMetric label {
-        font-size: 1.1em;
-        font-weight: bold;
-        color: #1A5276;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# --- Language Selection and Translations ---
-translations = {
-    "it": {
-        "app_title": "⚡ AI-JoSa ⚡",
-        "tab1_title": "🔌 Ottimizzatore Colonnine ⚙️",
-        "tab2_title": "📊 Testa Infrastruttura Esistente",
-        "tab3_title": "📈 Valuta Rendimento (ROI)",
-        "tab4_title": "💰 Stima Costo Wallbox Privata",
-        "tab5_title": "🏗️ Stima Costo Colonnina Trifase", 
-        
-        # General & Tab 1 Keys 
-        "optimizer_header": "🔌 Ottimizzatore Infrastruttura Colonnine",
-        "optimizer_intro": "Trova la configurazione ottimale di colonnine per il tuo parco veicoli, rispettando budget e potenza massima.",
-        "sidebar_config_params": "⚙️ Parametri Generali",
-        "economic_tech_params": "Parametri Economici e Tecnici",
-        "budget_available": "Budget disponibile (€)",
-        "max_power_kw": "Potenza Massima Totale Impianto (kW)",
-        "ac_turnover": "Turnazioni/Slot Giornalieri Colonnine AC", 
-        "dc_turnover": "Turnazioni/Slot Giornalieri Colonnine DC",
-        "charger_details_expander": "Dettagli Costo Caricatori",
-        "unit_cost": "Costo Unitario (€)",
-        "installation_cost": "Costo Installazione (€)",
-        "energy_costs": "Costi Energetici",
-        "private_charge_cost": "Costo kWh ricarica interna (€)",
-        "public_charge_cost": "Costo kWh ricarica pubblica (€)",
-        "vehicle_config": "🚗 Configurazione Veicoli",
-        "num_vehicle_groups": "Numero gruppi veicoli",
-        "group_header": "Gruppo Veicoli {i}",
-        "group_quantity": "Quantità veicoli nel gruppo",
-        "group_daily_km": "Km giornalieri (per veicolo)",
-        "group_consumption": "Consumo (kWh/100km per veicolo)",
-        "group_arrival_time": "Ora di Arrivo (h, 0-24)",
-        "group_departure_time": "Ora di Partenza (h, 0-24)",
-        "calculate_optimization": "🔍 Calcola Ottimizzazione Infrastruttura",
-        "optimization_results": "📊 Risultati Ottimizzazione",
-        "total_initial_cost": "Costo Totale Iniziale (CAPEX)",
-        "internal_energy_charged": "Energia Caricata Internamente (kWh)", # Old label
-        "estimated_annual_savings": "Risparmio Annuo Netto Stimato (€)", # Net vs Public EV Charge
-        "combined_efficiency": "Copertura Ricarica (%)",
-        "full_charge_success": "✅ Tutti i veicoli possono essere caricati completamente con questa configurazione.",
-        "partial_charge_warning": "⚠️ **Attenzione:** Configurazione non ottimale.",
-        "no_solution_found": "❌ Nessuna configurazione valida trovata.",
-        "charging_plan_header": "Simulazione Piano di Ricarica (Gantt)",
-        "vehicle_id_label": "Veicolo/Gruppo",
+# Funzione fittizia per la traduzione (da sostituire con la tua implementazione)
+def get_text(key):
+    # Mapping fittizio per le stringhe utilizzate nel codice
+    translations = {
+        "infrastructure_test_header": "Test di Infrastruttura di Ricarica",
+        "infrastructure_test_intro": "Simula la necessità energetica della flotta e verifica la capacità dell'infrastruttura.",
+        "test_params_vehicle_fleet": "Parametri della Flotta Veicoli",
+        "num_ev_vehicles": "Numero di Veicoli Elettrici",
+        "num_ev_vehicles_help": "Quanti veicoli EV simulare per la flotta.",
+        "single_vehicle_test": "Veicolo {i}",
+        "vehicle_name": "Nome Veicolo",
+        "daily_km_test": "Km Giornalieri Richiesti",
+        "daily_km_test_help": "Distanza media percorsa al giorno.",
+        "avg_consumption_test": "Consumo (Wh/Km)",
+        "avg_consumption_test_help": "Consumo medio del veicolo (es. 180 Wh/Km = 18 kWh/100km).",
+        "available_stop_hours_test": "Ore di Sosta Disponibili", # MANTENUTO SOLO PER RETROCOMPATIBILITÀ DELLE CHIAVI
+        "available_stop_hours_test_help": "Durata totale della sosta disponibile per la ricarica.",
+        "orario_ingresso": "Orario di Ingresso (h)", # NUOVA CHIAVE
+        "orario_uscita": "Orario di Uscita (h)", # NUOVA CHIAVE
+        "existing_infra_config": "Configurazione Infrastruttura Esistente",
+        "existing_infra_intro": "Definisci il numero di colonnine per tipo.",
+        "ac_11_chargers": "Colonnine AC 11 kW", "ac_11_chargers_help": "Quantità di colonnine AC 11kW",
+        "ac_22_chargers": "Colonnine AC 22 kW", "ac_22_chargers_help": "Quantità di colonnine AC 22kW",
+        "dc_30_chargers": "Colonnine DC 30 kW", "dc_30_chargers_help": "Quantità di colonnine DC 30kW",
+        "dc_60_chargers": "Colonnine DC 60 kW", "dc_60_chargers_help": "Quantità di colonnine DC 60kW",
+        "dc_90_chargers": "Colonnine DC 90 kW", "dc_90_chargers_help": "Quantità di colonnine DC 90kW",
+        "daily_charger_hours": "Ore di Disponibilità Giornaliera Colonnine", "daily_charger_hours_help": "Ore totali in cui le colonnine possono operare (es. 24h).",
+        "economic_investment_params": "Parametri Economici e di Investimento",
+        "economic_investment_intro": "Definisci i costi operativi e di acquisto.",
+        "internal_energy_cost_test": "Costo Energia Interna (€/kWh)", "internal_energy_cost_test_help": "Costo dell'energia prelevata internamente (es. dal fotovoltaico o tariffa aziendale).",
+        "external_energy_price_test": "Prezzo Energia Pubblica (€/kWh)", "external_energy_price_test_help": "Costo medio della ricarica esterna.",
+        "charger_purchase_costs": "Costi di Acquisto Colonnine (per unità)",
+        "investment_ac11": "Investimento AC 11kW (€)", "investment_ac11_help": "Costo di acquisto e installazione per AC 11kW.",
+        "investment_ac22": "Investimento AC 22kW (€)", "investment_ac22_help": "Costo di acquisto e installazione per AC 22kW.",
+        "investment_dc30": "Investimento DC 30kW (€)", "investment_dc30_help": "Costo di acquisto e installazione per DC 30kW.",
+        "investment_dc60": "Investimento DC 60kW (€)", "investment_dc60_help": "Costo di acquisto e installazione per DC 60kW.",
+        "investment_dc90": "Investimento DC 90kW (€)", "investment_dc90_help": "Costo di acquisto e installazione per DC 90kW.",
+        "run_infra_analysis": "Esegui Analisi Infrastruttura",
+        "add_vehicle_warning_analysis": "Devi aggiungere almeno un veicolo per eseguire l'analisi.",
+        "analysis_execution": "Esecuzione simulazione...",
+        "analysis_complete_success": "Analisi Completata!",
+        "performance_summary": "Riepilogo delle Performance",
+        "total_energy_requested": "Energia Totale Richiesta", "total_energy_requested_help": "Energia totale necessaria alla flotta per la giornata.",
+        "internal_energy_charged_test": "Energia Caricata Internamente", "internal_energy_charged_test_help": "Energia erogata dalle colonnine interne.",
+        "external_energy_to_charge": "Energia Esterna Residua", "external_energy_to_charge_help": "Energia che la flotta deve ricaricare all'esterno.",
+        "estimated_time_lost": "Tempo Esterno Stimato", "estimated_time_lost_help": "Tempo stimato (in ore) speso per ricariche esterne non effettuate internamente.",
+        "daily_external_charge_cost": "Costo Giornaliero Ricarica Esterna", "daily_external_charge_cost_help": "Costo della ricarica esterna residua.",
+        "avg_charger_utilization_rate": "Tasso Medio Utilizzo Colonnine", "avg_charger_utilization_rate_help": "Percentuale di tempo in cui le colonnine sono state utilizzate rispetto al tempo disponibile.",
+        "fully_charged_cars": "Auto Caricate Completamente", "fully_charged_cars_help": "Numero di veicoli che hanno raggiunto il 100% della richiesta energetica interna.",
+        "internal_operating_cost": "Costo Operativo Interno", "internal_operating_cost_help": "Costo dell'energia utilizzata dalle colonnine interne.",
+        "day_label": "giorno",
+        "estimated_annual_savings_test": "Risparmio Annuo Stimato", "estimated_annual_savings_test_help": "Risparmio annuale generato dall'infrastruttura interna.",
+        "roi_test": "ROI (Ritorno sull'Investimento)", "roi_test_help": "Tempo (in anni) necessario per ammortizzare l'investimento.",
+        "charger_utilization_details": "Dettagli Utilizzo Colonnine",
+        "vehicle_charge_status_test": "Stato di Ricarica Veicoli",
+        "energy_req_vs_charged_test": "Energia Richiesta vs. Caricata",
+        "operating_costs_analysis_test": "Analisi Costi Operativi",
+        "hourly_utilization_details": "Ore di utilizzo aggregate per tipologia di colonnina.",
+        "hourly_utilization_chart_title": "Ore di Utilizzo per Tipo Colonnina",
+        "charger_type_label": "Tipo Colonnina",
+        "hours_used_label": "Ore Utilizzate",
+        "no_chargers_configured_analysis": "Nessuna colonnina configurata per l'analisi.",
+        "gantt_planning_details": "Dettaglio Programmazione Ricariche (Gantt)",
+        "gantt_planning_intro": "Visualizzazione temporale di tutte le ricariche assegnate.",
+        "gantt_chart_title": "Pianificazione Ricarica (Timeline)",
+        "charger": "Colonnina",
+        "hour_of_day": "Ora del Giorno",
+        "vehicle_label": "Veicolo",
         "start_time_label": "Inizio",
         "end_time_label": "Fine",
-        "charger_type_tooltip": "Caricatore Assegnato (ID)",
-        "config_info_gantt": "Configurazione Caricatori", 
-        "simulation_summary": "Riepilogo Simulazione",
-        "charging_table_header": "Dettagli Ricariche Schedulate", 
-        "cost_label": "Costo Iniziale (€)", 
-        "efficiency_score_label": "Copertura Simulata (%)", 
-        "charger_mix_chart": "Distribuzione Caricatori per Efficienza/Costo", 
-        "cost_unit_label": "Costo Unità",
-        "cost_install_label": "Costo Installazione",
-        "cost_maintenance_label": "Costo Manutenzione Annuale",
-        "power_label": "Potenza Totale Impianto (kW)",
-        "final_config_header": "🎯 Configurazione Finale Raccomandata", 
-        "total_vehicles_expected": "Veicoli totali attesi", 
-        "vehicles_scheduled": "Veicoli Schedulati (Completati)", 
-        
-        # NUOVI KPI FINANZIARI
-        "payback_period_label": "Payback Period (Anni)", 
-        "annual_roi_label": "ROI Annuale Stimato (%)",
-        "annual_maint_cost_label": "Costo Manutenzione Annuale (OPEX)",
-        "energy_internal_charged_label": "Energia Caricata Internamente (kWh/Anno)", 
-        "energy_external_needed_label": "Energia Esterna Necessaria", 
-        "cost_external_annual_label": "Costo Ricarica Esterna Annuale (€)",
-        "annual_savings_vs_fuel_label": "Risparmio Annuo vs. Benzina/Diesel (€)", 
-        "fuel_equivalent_cost": "Costo kWh equivalente Benzina/Diesel (€)",
-
-        # Tab 2 Keys
-        "t2_header": "Testa la Tua Infrastruttura Esistente",
-        "t2_intro": "Simula la performance di una configurazione fissa di caricatori con il tuo parco veicoli.",
-        "t2_current_config": "Configurazione Caricatori Esistente",
-        "t2_run_simulation": "▶️ Avvia Simulazione Schedulazione",
-        "t2_results": "Risultati Simulazione",
-        "t2_vehicles_served": "Veicoli Serviti (Completati)",
-        "t2_energy_coverage": "Copertura Energetica Totale",
-        "t2_time_needed": "Energia Totale Richiesta (kWh)",
-        "t2_time_used": "Energia Totale Caricata (kWh)",
-        "t2_config_details": "Inserisci il numero di unità per tipo di caricatore:",
-        
-        # Tab 3 Keys
-        "t3_header": "Valuta Il Rendimento di un Punto di Ricarica Pubblico",
-        "t3_intro": "Calcola il Ritorno sull'Investimento (ROI) e il Payback Period per un nuovo punto di ricarica pubblico.",
-        "t3_charger_selection": "Seleziona Colonnina da Valutare",
-        "t3_public_price": "Prezzo di vendita kWh al pubblico (€)",
-        "t3_avg_utilization": "Utilizzo medio giornaliero (ore/giorno)",
-        "t3_target_roi": "ROI annuale atteso (%)",
-        "t3_calc_roi": "💰 Calcola Rendimento",
-        "t3_roi_results": "Risultati Finanziari",
-        "t3_roi_annual_revenue": "Ricavo Annuo Stimato",
-        "t3_roi_annual_cost": "Costo Annuo Operativo (Manutenzione + Energia)",
-        "t3_roi_net_profit": "Profitto Annuo Netto",
-        "t3_payback": "Payback Period (Anni)",
-        "t3_roi_perc": "ROI Annuale Raggiunto",
-        "t3_cost_of_energy": "Costo kWh (Acquisto)",
-        "t3_initial_investment": "Investimento Iniziale",
-        
-        # Tab 4 Keys
-        "t4_header": "Stima Costo Wallbox Privata/Aziendale",
-        "t4_intro": "Stima il costo totale di acquisto e installazione di una Wallbox a bassa potenza in base a un questionario tecnico.",
-        "t4_power_select": "Potenza Wallbox",
-        "t4_calc_cost": "✅ Stima Costo Totale",
-        "t4_results": "Riepilogo Costi",
-        "t4_wallbox_cost": "Costo Wallbox (Unità)",
-        "t4_material_cost": "Costo Materiali (Quadro + Cavi)",
-        "t4_labor_cost": "Costo Manodopera Stimato (Totale)",
-        "t4_total_cost": "Costo Totale Stimato",
-        "t4_installation_type": "Tipo di Installazione",
-        "t4_new_installation": "Nuovo Impianto (necessari quadri/protezioni)",
-        "t4_existing_predisp": "Predisposizione Esistente (cavo e protezioni già presenti)",
-        "t4_distance": "Distanza dal quadro elettrico (metri)",
-        "t4_cable_install_type": "Metodo di Installazione Cavi",
-        "t4_on_wall": "Solo Canaline/Tubi a Parete/Soffitto",
-        "t4_underground": "Richiesto Scavo e Posa a Terra",
-        "t4_certification": "Include Dichiarazione di Conformità (DiCo)",
-        "t4_condo_fire_cert": "Condominio con Certificato Prevenzione Incendi (Aggiungi 350€)",
-
-        # Tab 5 Keys 
-        "t5_header": "Stima Costo Impianto Colonnina (AC/DC) Trifase",
-        "t5_intro": "Calcola il costo totale di acquisto e installazione di una colonnina ad alta potenza, includendo i costi di quadro elettrico e ingegneria.",
-        "t5_config_select": "Seleziona Configurazione/Potenza",
-        "t5_distance": "Distanza dal punto di connessione (metri)",
-        "t5_material_cost": "Costo Materiali (Cavi, Protezioni) - Stimato",
-        "t5_labor_cost": "Costo Manodopera Stimato (Ore/Multiplo)",
-        "t5_panel_cost": "Costo Quadro Elettrico Principale",
-        "t5_engineering_cost": "Costo Progettazione/Ingegneria",
-        "t5_calc_cost": "✅ Stima Costo Totale",
-        "t5_total_cost": "Costo Totale Stimato",
-        "t5_wallbox_cost": "Costo Colonnina (Unità/e)",
-        "t5_base_material_per_meter": "Costo Materiale Base per Metro (€)",
-        "t5_material_multiplier": "Moltiplicatore Materiale (Fino 22kW/Unità)",
-        "t5_labor_multiplier": "Moltiplicatore Complessità Manodopera (x Base Ore)",
-        "t5_is_underground": "Posa a Terra (Scavo incluso)",
+        "energy_kwh_label": "Energia (kWh)",
+        "no_charges_recorded": "Nessuna ricarica assegnata nella simulazione.",
+        "fully_charged": "Caricato Completamente",
+        "partially_charged": "Caricato Parzialmente",
+        "not_charged": "Non Caricato",
+        "vehicle_charge_status_chart_title": "Distribuzione Stato di Ricarica Veicoli",
+        "run_analysis_to_view_status": "Esegui l'analisi per visualizzare lo stato di ricarica.",
+        "energy_comparison_chart_title": "Energia Richiesta vs. Caricata (Top 10)",
+        "no_vehicle_data_for_chart": "Nessun dato veicolo disponibile per il grafico.",
+        "run_analysis_to_view_comparison": "Esegui l'analisi per visualizzare il confronto energetico.",
+        "operating_costs_distribution_chart_title": "Distribuzione Costi Operativi Giornalieri",
+        "run_analysis_to_view_costs": "Esegui l'analisi per visualizzare i costi.",
+        "optimization_suggestions": "Suggerimenti per l'Ottimizzazione",
+        "improvement_opportunity": "Opportunità: {energy:.1f} kWh non sono stati ricaricati internamente. Considera l'aggiunta di colonnine o l'ottimizzazione degli orari.",
+        "fleet_coverage": "Copertura Flotta: {charged}/{total} veicoli sono stati caricati completamente. Focalizzati sui veicoli con carenza energetica.",
+        "high_utilization_warning": "Attenzione: L'utilizzo delle colonnine è alto ({utilization:.1f}%). Potrebbe esserci congestione. Considera l'ampliamento.",
+        "low_utilization_info": "Informazione: L'utilizzo delle colonnine è basso ({utilization:.1f}%). L'infrastruttura è sovradimensionata rispetto alla richiesta attuale.",
+        "well_balanced_utilization": "Utilizzo ben bilanciato. L'infrastruttura è ottimale per il carico attuale.",
+        "good_roi_success": "Ottimo ROI: L'investimento ha un tasso di ritorno eccellente ({roi:.1f}%).",
+        "positive_roi_info": "ROI Positivo: L'investimento è profittevole ({roi:.1f}%).",
+        "negative_roi_error": "ROI Negativo: L'investimento non è profittevole ({roi:.1f}%). Rivedi i costi operativi e di investimento.",
+        "roi_not_calculable": "ROI non calcolabile (Investimento iniziale pari a zero).",
+        "configure_and_calculate": "Configura i parametri e premi 'Esegui Analisi Infrastruttura'."
     }
-}
+    return translations.get(key, key)
 
+# Variabili di configurazione fittizie per COLONNINE_TAB1 e durata minima
+COLONNINE_TAB1 = {'DC_20': {'potenza_effettiva': 20}, 'DC_40': {'potenza_effettiva': 40}}
+MIN_DURATA_RICARICA = 0.5  # Durata minima di ricarica in ore (30 minuti)
 
-def get_text(key):
-    """Retrieves the text for the given key in Italian."""
-    return translations.get("it", {}).get(key, f"Missing key: {key}")
+# ====================================================================
+# FUNZIONE DI SIMULAZIONE AGGIORNATA
+# ====================================================================
 
-# --- Parametri di Costo Standard per Calcoli Strutturati ---
-def get_charger_costs(custom_costs=None):
-    default_costs = {
-        # Wallbox (Aggiunti per Tab 4)
-        "WB_7_4": {"unit": 900, "install": 800, "power": 7.4, "maint_annual": 80},
-        "WB_11": {"unit": 1200, "install": 1000, "power": 11, "maint_annual": 100},
-        
-        # Colonnine (Per Tab 1, 2, 3, 5)
-        "AC_11": {"unit": 1800, "install": 1200, "power": 11, "maint_annual": 150},
-        "AC_22": {"unit": 2500, "install": 1500, "power": 22, "maint_annual": 200},
-        "DC_20": {"unit": 12000, "install": 2500, "power": 20, "maint_annual": 700}, 
-        "DC_30": {"unit": 15000, "install": 3000, "power": 30, "maint_annual": 800},
-        "DC_60": {"unit": 20000, "install": 5000, "power": 60, "maint_annual": 1000}, 
-        "DC_90": {"unit": 25000, "install": 6000, "power": 90, "maint_annual": 1500}, 
-        "DC_120": {"unit": 30000, "install": 7000, "power": 120, "maint_annual": 1800}, 
-    }
-    
-    if custom_costs:
-        for charger, costs in custom_costs.items():
-            if charger in default_costs:
-                default_costs[charger]['unit'] = costs.get('unit', default_costs[charger]['unit'])
-                default_costs[charger]['install'] = costs.get('install', default_costs[charger]['install'])
-                
-    return default_costs
+def calculate_infrastructure_test(veicoli, colonnine_config, costo_energia_interna,
+                                  prezzo_energia_pubblica, ore_disponibili, costi_investimento_colonnine):
+    """
+    Simula la ricarica per una data configurazione di infrastruttura e flotta veicoli.
+    Vincoli chiave:
+    1. Colonnina carica 1 auto per volta (gestito da available_slots).
+    2. Un'auto non cerca più colonnine contemporaneamente (gestito dal break nel ciclo).
+    3. Usa orari di ingresso/uscita effettivi.
+    """
+    MIN_INTERVALLO_RICARICA_SIM = 0.5  # 30 minuti tra due ricariche sulla stessa stazione
 
-# --- Funzioni di utilità (non modificate) ---
-def calculate_charger_costs(config, charger_costs_data):
-    total_unit_cost = 0
-    total_install_cost = 0
-    total_maint_annual = 0
-    total_power = 0
-    
-    for type, count in config.items():
-        if count > 0 and type in charger_costs_data:
-            costs = charger_costs_data[type]
-            total_unit_cost += count * costs['unit']
-            total_install_cost += count * costs['install']
-            total_maint_annual += count * costs['maint_annual']
-            total_power += count * costs['power']
-            
-    total_initial_cost = total_unit_cost + total_install_cost # CAPEX
-    
-    return {
-        "total_initial_cost": total_initial_cost,
-        "total_unit_cost": total_unit_cost,
-        "total_install_cost": total_install_cost,
-        "total_maint_annual": total_maint_annual,
-        "total_power": total_power
+    colonnine_instances = []
+    power_map = {
+        'ac_11': 11, 'ac_22': 22, 'dc_30': 30, 'dc_60': 60, 'dc_90': 90,
+        'dc_20': COLONNINE_TAB1.get('DC_20', {}).get('potenza_effettiva', 20),
+        'dc_40': COLONNINE_TAB1.get('DC_40', {}).get('potenza_effettiva', 40),
     }
 
-def get_color_for_vehicle(vehicle_id):
-    """Associa un colore deterministico a un veicolo per il grafico Gantt."""
-    hash_value = sum(ord(char) for char in vehicle_id)
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
-    return colors[hash_value % len(colors)]
-
-def get_effective_power(charger_type, nominal_power):
-    """Restituisce la potenza effettiva di ricarica, considerando il limite del veicolo a 11kW per AC."""
-    # Vincolo per riflettere il limite del caricatore di bordo AC a 11kW per la flotta
-    if 'AC' in charger_type and nominal_power > 11:
-        return 11 
-    return nominal_power
-
-def generate_vehicles_list(groups):
-    """Genera la lista normalizzata dei veicoli dalla configurazione dei gruppi."""
-    vehicles_to_charge = []
-    
-    for i, group in enumerate(groups):
-        qty = group['quantity']
-        daily_km = group['daily_km']
-        consumption_kwh_per_km = group['consumption'] / 100
-        energy_req_per_vehicle = daily_km * consumption_kwh_per_km
-        arrival = group['arrival_time']
-        departure = group['departure_time']
-
-        # Normalizzazione: se partenza < arrivo, significa che la partenza è il giorno dopo
-        departure_normalized = departure if departure > arrival else departure + 24
-        
-        for j in range(qty):
-            vehicle_id = f"V{j+1}-G{i+1}" 
-            vehicles_to_charge.append({
-                'id': vehicle_id,
-                'energy_needed': energy_req_per_vehicle,
-                'arrival': arrival,
-                'departure': departure_normalized,
-                'group_id': f"G{i+1}",
-                'charged_status': 0, 
-                'color': get_color_for_vehicle(vehicle_id),
-                'session': []
+    # 1. Creazione delle istanze delle colonnine
+    for tipo, quantita in colonnine_config.items():
+        potenza = power_map.get(tipo, 11)
+        for i in range(quantita):
+            colonnine_instances.append({
+                'tipo': tipo,
+                'nome': f"{tipo}_{i+1}",
+                'potenza': potenza,
+                'available_slots': [(0.0, float(ore_disponibili))], # Intervalli liberi (start, end)
+                'bookings': [] # Prenotazioni effettuate
             })
-            
-    # Ordina per energia richiesta decrescente per dare priorità ai carichi maggiori
-    vehicles_to_charge.sort(key=lambda x: x['energy_needed'], reverse=True) 
-    return vehicles_to_charge
 
-# --- FUNZIONE simulate_charging_plan ---
-def simulate_charging_plan(config, groups, charger_costs_data, ac_slots, dc_slots):
-    """
-    Simulazione di scheduling con logica sequenziale per il veicolo: 
-    un veicolo occupa un solo caricatore alla volta e non inizia una nuova sessione 
-    fino a quando la precedente non è terminata (+ buffer).
-    """
-    
-    # 1. Definizione Tipi Caricatore (Ordinati per potenza decrescente per priorità di schedulazione)
-    charger_types = ["DC_120", "DC_90", "DC_60", "DC_30", "DC_20", "AC_22", "AC_11"] 
-    charger_nominal_power = {t: charger_costs_data.get(t, {}).get('power', 0) for t in charger_types}
-    vehicles_to_charge = generate_vehicles_list(groups)
-    
-    # 2. Preparazione Colonnine (Gestione Slot)
-    charger_pool = []
-    for t in charger_types:
-        for i in range(config.get(t, 0)):
-            # Per semplicità, usiamo solo il tempo di occupazione, ma teniamo i limiti di slot definiti
-            slots = dc_slots if 'DC' in t else ac_slots
-            charger_pool.append({
-                'type': t, 
-                'id': f"{t}-{i+1}", 
-                'power': charger_nominal_power.get(t, 0),
-                'total_slots': slots,
-                'used_slots': 0,
-                'schedule': [] # [(start, end), ...]
-            })
-            
-    # 3. Simulazione di Scheduling
-    charging_schedule = []
-    BUFFER_TIME_H = 0.25 # 15 minuti di pausa tra una ricarica e l'altra
-    
-    # Initialize dynamic availability tracking for vehicles
-    for vehicle in vehicles_to_charge:
-        # available_from è l'orario in cui il veicolo finisce la ricarica precedente + buffer, o il suo arrivo
-        vehicle['available_from'] = vehicle['arrival'] 
+    risultati = {
+        'energia_totale': 0, 'energia_caricata': 0, 'energia_esterna': 0,
+        'tempo_esterno_stimato': 0, 'costo_ricariche_esterne': 0,
+        'utilizzo_colonnine_ore': defaultdict(float), 'prenotazioni': [],
+        'auto_caricate_completamente': 0, 'num_veicoli_totali': len(veicoli),
+        'costo_operativo_interno': 0, 'investimento_totale_iniziale': 0,
+        'risparmio_annuo_stimato': 0, 'ROI': 0
+    }
 
-    # Loop a single vehicle until charged or departure
-    for vehicle in vehicles_to_charge:
-        remaining_energy = vehicle['energy_needed']
-        
-        # Inner loop per assegnare sessioni sequenziali fino a quando l'energia è soddisfatta o il tempo esaurito
-        # La condizione vehicle['available_from'] < vehicle['departure'] garantisce che ci sia tempo per una potenziale sessione
-        while remaining_energy > 0.01 and vehicle['available_from'] < vehicle['departure']:
-            
-            best_session_found = None
-            best_session_charger = None
-            
-            # Trova la migliore *prossima* sessione per questo veicolo
-            # Iteriamo sui caricatori ordinati per potenza decrescente (priorità per la ricarica più veloce)
-            for charger in sorted(charger_pool, key=lambda c: charger_nominal_power.get(c['type'], 0), reverse=True): 
-                
-                # 1. Ora di fine dell'ultima ricarica schedulata su questo caricatore
-                latest_end_time_on_charger = 0
-                if charger['schedule']:
-                    latest_end_time_on_charger = max(end for start, end in charger['schedule'])
-                
-                # 2. Ora di Inizio Potenziale (Max tra Veicolo Disponibile e Caricatore Disponibile + Buffer)
-                potential_start_time = max(vehicle['available_from'], latest_end_time_on_charger + BUFFER_TIME_H)
+    veicoli_for_sim = [v.copy() for v in veicoli]
+    for v in veicoli_for_sim:
+        v['energia_rimanente'] = v['energia_richiesta']
+        v['caricata_completamente'] = False
+        # AGGIORNAMENTO LOGICA: Usa gli orari di ingresso e uscita reali
+        v['sosta_start'] = v.get('ingresso', 0.0)
+        v['sosta_end'] = v.get('uscita', v.get('sosta', 0.0)) # Fallback su 'sosta' se ingresso/uscita non ci sono
+        # Flag per tracciare se un'auto ha già una prenotazione su una colonnina
+        v['colonnina_assegnata'] = None 
 
-                # 3. Tempo disponibile per questa sessione
-                time_available = vehicle['departure'] - potential_start_time
-                
-                if time_available > 0.01: # Almeno 36 secondi
-                    
-                    # Potenza effettiva
-                    charger_power_val = get_effective_power(charger['type'], charger['power'])
-                    efficiency = 0.8 if 'DC' in charger['type'] else 0.9
-                    
-                    # Tempo ideale per caricare l'energia rimanente
-                    ideal_charge_time_for_remaining = remaining_energy / (charger_power_val * efficiency + 0.001)
-                    
-                    time_this_session = min(ideal_charge_time_for_remaining, time_available)
-                    end_time = potential_start_time + time_this_session
-                    
-                    # Ricalcola se il tempo eccede l'orario di partenza (anche se dovrebbe essere già gestito da time_available)
-                    if end_time > vehicle['departure']:
-                        time_this_session = vehicle['departure'] - potential_start_time
-                        end_time = vehicle['departure']
-                    
-                    energy_charged_this_session = time_this_session * charger_power_val * efficiency
-                    
-                    if energy_charged_this_session > 0.01:
-                        # Trovata la sessione più veloce. Scheduliamo e usciamo dal loop interno.
-                        best_session_found = {
-                            'start': potential_start_time,
-                            'end': end_time,
-                            'energy': energy_charged_this_session,
-                            'time': time_this_session
-                        }
-                        best_session_charger = charger
-                        break # Assegna la sessione e passa alla successiva potenziale per lo stesso veicolo
-                        
-            
-            if best_session_found:
-                # 1. Aggiorna Stato Caricatore
-                best_session_charger['schedule'].append((best_session_found['start'], best_session_found['end']))
-                best_session_charger['schedule'].sort(key=lambda x: x[0]) 
-                best_session_charger['used_slots'] += 1
-                
-                # 2. Aggiorna Stato Veicolo
-                remaining_energy -= best_session_found['energy']
-                vehicle['charged_status'] += best_session_found['energy']
-                # Il veicolo è disponibile solo dopo la fine della sessione + buffer
-                vehicle['available_from'] = best_session_found['end'] + BUFFER_TIME_H 
-                
-                # 3. Registra Evento
-                charging_schedule.append({
-                    'Vehicle': vehicle['id'],
-                    'Charger': best_session_charger['id'],
-                    'Start': best_session_found['start'],
-                    'End': best_session_found['end'],
-                    'Type': best_session_charger['type'],
-                    'Color': vehicle['color']
-                })
-                
-                vehicle['session'].append({
-                    'Charger': best_session_charger['id'],
-                    'Start': best_session_found['start'],
-                    'End': best_session_found['end'],
-                    'Energy': best_session_found['energy']
-                })
+    # Ordina i veicoli per urgenza (prima chi deve partire prima)
+    veicoli_for_sim.sort(key=lambda x: x['sosta_end'])
 
-            else:
-                # Nessun caricatore disponibile o tempo insufficiente
-                break 
+    # Ciclo di simulazione: assegna ricariche finché possibile
+    max_sim_iterations = len(veicoli_for_sim) * len(colonnine_instances) * 24
 
-    # 4. Normalizzazione oraria per il grafico (shift al 24h)
-    df_schedule = pd.DataFrame(charging_schedule)
-    if not df_schedule.empty:
-        df_schedule['Start_dt'] = pd.to_datetime('2023-01-01') + pd.to_timedelta(df_schedule['Start'], unit='h')
-        df_schedule['End_dt'] = pd.to_datetime('2023-01-01') + pd.to_timedelta(df_schedule['End'], unit='h')
-        
-    return df_schedule, vehicles_to_charge 
-# --- FINE FUNZIONE simulate_charging_plan ---
+    for _ in range(max_sim_iterations):
+        something_charged_in_this_iteration = False
 
-
-# --- FUNZIONE find_final_optimized_config ---
-def find_final_optimized_config(all_configs, params):
-    """
-    Simula e seleziona la configurazione finale che massimizza i veicoli schedulati 
-    e minimizza il costo tra quelle con la massima schedulazione.
-    Aggiorna la lista 'all_configs' con i risultati di simulazione dettagliati.
-    """
-    
-    groups = params['vehicle_groups']
-    charger_costs_data = params['charger_costs']
-    ac_slots = params['ac_slots']
-    dc_slots = params['dc_slots']
-    fuel_equivalent_cost = params['fuel_equivalent_cost']
-    
-    # Preparazione lista veicoli per calcolo richiesta totale (unica)
-    all_vehicles = generate_vehicles_list(groups)
-    total_vehicles_expected = sum(g['quantity'] for g in groups)
-    total_daily_energy_req = sum(v['energy_needed'] for v in all_vehicles)
-    
-    best_final_results = None
-    df_schedule_final = pd.DataFrame()
-    vehicles_status_final = []
-    
-    max_scheduled_vehicles = -1
-    min_cost_for_max_scheduled = float('inf')
-    
-    optimization_steps_log = ["Avvio simulazione dettagliata su configurazioni top (Massimo 50)..."]
-    
-    DAYS_PER_YEAR = 300 # Giorni operativi standard
-    MAX_SIMULATIONS = 50 
-    
-    # Qui, all_configs è ancora ordinato per Efficienza Approssimata / Costo
-
-    for i, config_result_approx in enumerate(all_configs[:MAX_SIMULATIONS]):
-        
-        current_config = config_result_approx['config']
-        
-        # Simula con la configurazione
-        df_schedule_current, vehicles_status_current = simulate_charging_plan(
-            current_config, groups, charger_costs_data, ac_slots, dc_slots
+        # Prendi solo i veicoli che necessitano ancora di ricarica
+        vehicles_needing_charge = sorted(
+            [v for v in veicoli_for_sim if v['energia_rimanente'] > 0],
+            key=lambda x: (x['sosta_end'], -x['energia_rimanente'])
         )
-        
-        # Calcola i veicoli completamente caricati (>= 99% dell'energia richiesta)
-        vehicles_scheduled_current = sum(1 for v in vehicles_status_current if v['charged_status'] >= v['energy_needed'] * 0.99)
-        
-        # -----------------------------------------------------------
-        # CALCOLO KPI FINANZIERI DETTAGLIATI E RICHIESTI 
-        # -----------------------------------------------------------
-        final_cost_details = calculate_charger_costs(current_config, charger_costs_data)
-        current_initial_cost = final_cost_details["total_initial_cost"]
-        final_energy_charged = sum(v['charged_status'] for v in vehicles_status_current)
-        
-        
-        # 1. Risparmio Annuo Lordo (vs. Public EV Charge)
-        annual_savings_gross_ev = (final_energy_charged * DAYS_PER_YEAR * (params['public_cost'] - params['private_cost'])) 
-        
-        # 2. Risparmio Annuo Netto (vs. Public EV Charge - L'attuale 'estimated_annual_savings')
-        annual_net_benefit = annual_savings_gross_ev - final_cost_details["total_maint_annual"] 
-        
-        # 3. Risparmio Annuo Netto vs. Benzina/Diesel 
-        annual_savings_gross_fuel = (final_energy_charged * DAYS_PER_YEAR * (fuel_equivalent_cost - params['private_cost']))
-        annual_savings_vs_fuel = annual_savings_gross_fuel - final_cost_details["total_maint_annual"]
-        
-        # 4. Energia Esterna e Costo
-        daily_energy_deficit = max(0, total_daily_energy_req - final_energy_charged)
-        energy_external_annual_kwh = daily_energy_deficit * DAYS_PER_YEAR
-        cost_external_annual = energy_external_annual_kwh * params['public_cost']
-        
-        # 5. Payback Period e ROI Annuale
-        if annual_net_benefit > 0:
-            payback_period = current_initial_cost / annual_net_benefit
-            annual_roi = (annual_net_benefit / current_initial_cost) * 100
-        else:
-            payback_period = float('inf') 
-            annual_roi = 0.0
-            
-        energy_coverage_perc = (final_energy_charged / (total_daily_energy_req + 0.001)) * 100
-        
-        # Aggiorna la configurazione (che è una copia) con i risultati di schedulazione realistici e tutti i KPI
-        config_result_approx['vehicles_scheduled'] = vehicles_scheduled_current
-        config_result_approx['cost_initial'] = current_initial_cost
-        config_result_approx['annual_net_savings'] = annual_net_benefit
-        config_result_approx['total_maint_annual'] = final_cost_details["total_maint_annual"]
-        config_result_approx['energy_external_kwh'] = energy_external_annual_kwh # Annual value
-        config_result_approx['cost_external_annual'] = cost_external_annual
-        config_result_approx['combined_efficiency'] = energy_coverage_perc # Efficienza SIMULATA
-        config_result_approx['total_power'] = final_cost_details["total_power"]
-        # -----------------------------------------------------------
 
-        log_message = f"Configurazione {i+1} ({str({k: v for k, v in current_config.items() if v > 0})}): Schedulati {vehicles_scheduled_current} / {total_vehicles_expected}. Copertura {energy_coverage_perc:.1f}%. Costo: € {current_initial_cost:,.0f}."
-        optimization_steps_log.append(log_message.replace(",", ".")) 
-        
-        
-        # Logica di selezione: Massimizza Veicoli Schedulati (Primary), Minimizza Costo (Secondary)
-        is_better = False
-        
-        if vehicles_scheduled_current > max_scheduled_vehicles:
-            is_better = True
-        elif vehicles_scheduled_current == max_scheduled_vehicles:
-            if current_initial_cost < min_cost_for_max_scheduled:
-                is_better = True
+        if not vehicles_needing_charge:
+            break # Tutte le auto sono caricate
 
-        if is_better:
-            max_scheduled_vehicles = vehicles_scheduled_current
-            min_cost_for_max_scheduled = current_initial_cost
-            
-            # Aggiornamento dei dati della migliore configurazione trovata finora
-            best_final_results = {
-                "config": current_config,
-                "total_initial_cost": current_initial_cost,
-                "total_power": final_cost_details["total_power"],
-                "combined_efficiency": energy_coverage_perc,
-                "vehicles_scheduled": vehicles_scheduled_current, 
-                "total_vehicles_expected": total_vehicles_expected,
-                "estimated_annual_savings": annual_net_benefit, # Net vs Public EV Charge
-                "internal_energy_charged": final_energy_charged, # Daily value
-                "total_energy_request": total_daily_energy_req,
-                "is_full_charge": vehicles_scheduled_current == total_vehicles_expected,
-                # AGGIUNTA DEI NUOVI KPI FINANZIAMI E ENERGETICI RICHIESTI
-                "payback_period": payback_period, 
-                "annual_roi": annual_roi,
-                "total_maint_annual": final_cost_details["total_maint_annual"], 
-                "energy_external_kwh": energy_external_annual_kwh, # Annual value
-                "cost_external_annual": cost_external_annual,
-                "annual_savings_vs_fuel": annual_savings_vs_fuel,
-                **final_cost_details 
-            }
-            # Salvataggio anche dei dati di simulazione (Gantt, Status) della migliore configurazione
-            df_schedule_final = df_schedule_current
-            vehicles_status_final = vehicles_status_current # <-- CORREZIONE: Usare vehicles_status_current
-            
-        
-        # Ottimizzazione del ciclo
-        if max_scheduled_vehicles == total_vehicles_expected and config_result_approx['combined_efficiency'] < 70: 
-             optimization_steps_log.append("Trovata soluzione al 100%. Le configurazioni rimanenti sono molto meno efficienti in stima. Termino l'analisi.")
-             break
-        
-    
-    optimization_steps_log.append(f"--- Risultato Finale ---")
-    if best_final_results:
-        optimization_steps_log.append(f"🎯 Configurazione Finale Selezionata: {str({k: v for k, v in best_final_results['config'].items() if v > 0})}. Schedulati: {max_scheduled_vehicles} / {total_vehicles_expected}. Costo Minimo per questa copertura: € {min_cost_for_max_scheduled:,.0f}.".replace(",", "."))
-    
-    # Ordina la lista completa dei risultati di schedulazione realistici per la visualizzazione delle alternative
-    all_configs.sort(key=lambda x: (x.get('vehicles_scheduled', 0), -x.get('cost_initial', float('inf'))), reverse=True)
-    
-    return best_final_results, df_schedule_final, vehicles_status_final, optimization_steps_log, all_configs
-# --- FINE FUNZIONE find_final_optimized_config ---
+        for vehicle in vehicles_needing_charge:
+            if vehicle['energia_rimanente'] <= 0:
+                continue
 
+            best_option = None # (colonnina_instance, charge_start, charge_end, energy_to_charge)
 
-# --- Funzioni di Ottimizzazione/Calcolo (Tab 1) ---
-def calculate_optimization_results(params):
-    """
-    Esegue il brute force con metriche approssimate (efficienza energetica).
-    Ritorna la lista di tutte le configurazioni valide, ordinate per efficienza (max) e costo (min).
-    """
-    
-    costs = params['charger_costs']
-    budget = params['budget']
-    max_power = params['max_power']
-    groups = params['vehicle_groups']
-    private_cost = params['private_cost']
-    public_cost = params['public_cost']
-    ac_slots = params['ac_slots']
-    dc_slots = params['dc_slots']
-    fuel_equivalent_cost = params['fuel_equivalent_cost']
-    
-    total_daily_energy_req = 0
-    total_vehicles = 0
-    for group in groups:
-        qty = group['quantity']
-        daily_km = group['daily_km']
-        consumption_kwh_per_km = group['consumption'] / 100
-        group_energy_req = qty * daily_km * consumption_kwh_per_km
-        total_daily_energy_req += group_energy_req
-        total_vehicles += qty
-        
-    # Limiti massimi per il brute force (ridotti per performance)
-    max_units_per_type = min(15, ceil(total_vehicles * 0.5) + 3) if total_vehicles > 0 else 10 
-    
-    max_ac11 = min(max_units_per_type, ceil(budget / (costs.get("AC_11", {}).get("unit", float('inf')) + costs.get("AC_11", {}).get("install", float('inf')))))
-    max_ac22 = min(max_units_per_type, ceil(budget / (costs.get("AC_22", {}).get("unit", float('inf')) + costs.get("AC_22", {}).get("install", float('inf')))))
-    max_dc20 = min(max_units_per_type, ceil(budget / (costs.get("DC_20", {}).get("unit", float('inf')) + costs.get("DC_20", {}).get("install", float('inf'))))) 
-    max_dc30 = min(max_units_per_type, ceil(budget / (costs.get("DC_30", {}).get("unit", float('inf')) + costs.get("DC_30", {}).get("install", float('inf')))))
-    max_dc60 = min(max_units_per_type, ceil(budget / (costs.get("DC_60", {}).get("unit", float('inf')) + costs.get("DC_60", {}).get("install", float('inf')))))
-    max_dc90 = min(max_units_per_type, ceil(budget / (costs.get("DC_90", {}).get("unit", float('inf')) + costs.get("DC_90", {}).get("install", float('inf'))))) 
-    max_dc120 = min(max_units_per_type, ceil(budget / (costs.get("DC_120", {}).get("unit", float('inf')) + costs.get("DC_120", {}).get("install", float('inf'))))) 
-    
-    all_configs = []
-    max_comb = 20000 
-    comb_count = 0
-    
-    # Nested loops per la ricerca brute force (limitata per tempo di esecuzione)
-    for n_ac11 in range(0, max_ac11 + 1):
-        for n_ac22 in range(0, max_ac22 + 1):
-            for n_dc20 in range(0, max_dc20 + 1):
-                for n_dc30 in range(0, max_dc30 + 1):
-                    for n_dc60 in range(0, max_dc60 + 1): 
-                        for n_dc90 in range(0, max_dc90 + 1):
-                            for n_dc120 in range(0, max_dc120 + 1):
-                                
-                                comb_count += 1
-                                if comb_count > max_comb: break
+            # Itera su tutte le colonnine per trovare il miglior slot
+            for colonnina in colonnine_instances:
+                # OPTIONAL: Se un veicolo deve usare una sola colonnina per TUTTE le sue ricariche (logica più restrittiva)
+                # if vehicle['colonnina_assegnata'] and vehicle['colonnina_assegnata'] != colonnina['nome']:
+                #     continue
 
-                                config = {
-                                    "AC_11": n_ac11, 
-                                    "AC_22": n_ac22, 
-                                    "DC_20": n_dc20, 
-                                    "DC_30": n_dc30, 
-                                    "DC_60": n_dc60, 
-                                    "DC_90": n_dc90, 
-                                    "DC_120": n_dc120
-                                }
-                                if sum(config.values()) == 0: continue
-                                
-                                cost_details = calculate_charger_costs(config, costs)
-                                current_cost = cost_details["total_initial_cost"]
-                                current_power = cost_details["total_power"]
-                                total_maint_annual = cost_details["total_maint_annual"]
-                                
-                                if current_cost > budget: continue
-                                if current_power > max_power: continue
-                                
-                                # Capacità stimata (approssimazione per l'ottimizzazione iniziale)
-                                max_daily_energy_supply = 0
-                                
-                                # Calcoli per l'efficienza basati sulla potenza nominale e un tempo di ricarica tipico per slot
-                                
-                                # AC (Usa 11kW effettivi, assume 4h per slot)
-                                max_daily_energy_supply += config["AC_11"] * ac_slots * (11 * 4 * 0.9) 
-                                max_daily_energy_supply += config["AC_22"] * ac_slots * (11 * 4 * 0.9) 
-                                
-                                # DC
-                                # Assumiamo ore di utilizzo per slot DC: 2.5h (20kW), 2h (30kW), 1.5h (60kW), 1h (90kW), 0.7h (120kW)
-                                DC_HOURS = {"DC_20": 2.5, "DC_30": 2, "DC_60": 1.5, "DC_90": 1, "DC_120": 0.7}
-                                for dc_type, hours in DC_HOURS.items():
-                                    if config.get(dc_type, 0) > 0:
-                                         max_daily_energy_supply += config[dc_type] * dc_slots * (costs.get(dc_type, {}).get("power", 0) * hours * 0.8)
+                for slot_idx, (slot_start, slot_end) in enumerate(colonnina['available_slots']):
+                    # Calcola l'intersezione di tempo tra veicolo e slot colonnina
+                    effective_charge_start = max(vehicle['sosta_start'], slot_start)
+                    effective_charge_end = min(vehicle['sosta_end'], slot_end)
 
-                                internal_energy_charged = min(total_daily_energy_req, max_daily_energy_supply)
-                                
-                                DAYS_PER_YEAR = 300
-                                # Netto vs Public EV Charge (per calcolo Payback/ROI)
-                                annual_savings = (internal_energy_charged * DAYS_PER_YEAR * (public_cost - private_cost)) 
-                                annual_net_benefit = annual_savings - total_maint_annual 
-                                
-                                # Netto vs Fuel Equivalent
-                                annual_savings_vs_fuel = (internal_energy_charged * DAYS_PER_YEAR * (fuel_equivalent_cost - private_cost)) - total_maint_annual
+                    # Aggiusta per l'intervallo minimo se c'è una prenotazione precedente su questa stazione
+                    if colonnina['bookings']:
+                        last_booking_end = max(b['fine'] for b in colonnina['bookings'] if b['fine'] <= effective_charge_start)
+                        effective_charge_start = max(effective_charge_start, last_booking_end + MIN_INTERVALLO_RICARICA_SIM)
+                    
+                    # *****************************************************************
+                    # IL TUO BLOCCO DI CODICE RIPRENDE QUI, CON LE VARIABILI GIA' AGGIORNATE
+                    # *****************************************************************
 
-                                energy_coverage_perc = (internal_energy_charged / (total_daily_energy_req + 0.001)) * 100
-                                
-                                config_result = {
-                                    "config": config,
-                                    "total_initial_cost": current_cost,
-                                    "total_power": current_power,
-                                    "internal_energy_charged": internal_energy_charged,
-                                    "total_energy_request": total_daily_energy_req,
-                                    "estimated_annual_savings": annual_net_benefit,
-                                    "annual_savings_vs_fuel": annual_savings_vs_fuel,
-                                    "combined_efficiency": energy_coverage_perc,
-                                    "is_full_charge": internal_energy_charged >= total_daily_energy_req * 0.99,
-                                    # Questi campi saranno sovrascritti dalla simulazione, ma li inseriamo per completezza
-                                    "vehicles_scheduled": 0, 
-                                    "energy_external_kwh": 0,
-                                    **cost_details
-                                }
-                                all_configs.append(config_result)
+                    if effective_charge_end - effective_charge_start >= MIN_DURATA_RICARICA:
+                        potential_duration = effective_charge_end - effective_charge_start
+                        energy_possible_in_slot = colonnina['potenza'] * potential_duration
+                        
+                        energy_to_attempt = min(vehicle['energia_rimanente'], energy_possible_in_slot)
 
-                                if comb_count > max_comb: break
-                            if comb_count > max_comb: break
-                        if comb_count > max_comb: break
-                    if comb_count > max_comb: break
-                if comb_count > max_comb: break
-            if comb_count > max_comb: break
-        if comb_count > max_comb: break
+                        if energy_to_attempt > 0:
+                            # Prioritize options that charge more energy, or use higher power stations
+                            if not best_option or energy_to_attempt > best_option[3]:
+                                best_option = (colonnina, effective_charge_start, effective_charge_end, energy_to_attempt)
 
-    # Ordina: 1. Efficienza Approssimata (Decrescente), 2. Costo (Crescente)
-    all_configs.sort(key=lambda x: (x['combined_efficiency'], -x['total_initial_cost']), reverse=True)
-    return all_configs
-
-def display_config_chart(config, title):
-    """Genera un grafico a barre per visualizzare la configurazione delle colonnine."""
-    # Prepara i dati per il grafico, filtrando le quantità pari a 0
-    data = [{"Caricatore": k, "Quantità": v} for k, v in config.items() if v > 0]
-    df = pd.DataFrame(data)
-    
-    if df.empty:
-        return go.Figure()
-        
-    # Ordine personalizzato per coerenza grafica
-    order = ["DC_120", "DC_90", "DC_60", "DC_30", "DC_20", "AC_22", "AC_11"]
-    
-    # Colori per AC (Verde) e DC (Blu)
-    colors_map = { c: ('#3498DB' if 'DC' in c else '#2ECC71') for c in df['Caricatore'].unique() }
-
-    fig = px.bar(df, x='Caricatore', y='Quantità', title=title, 
-                 color='Caricatore', color_discrete_map=colors_map, 
-                 text='Quantità')
-                 
-    fig.update_traces(textposition='outside')
-    fig.update_layout(xaxis={'categoryorder': 'array', 'categoryarray': order}, 
-                      yaxis_title="Numero di Unità", 
-                      margin=dict(l=20, r=20, t=50, b=20),
-                      showlegend=False)
-    return fig
-
-# --- Render Functions (Tab 1) ---
-def render_tab1():
-    st.header(get_text("optimizer_header"))
-    st.markdown(get_text("optimizer_intro"))
-    
-    # --- Inizializzazione Session State per i Veicoli (CORREZIONE KeyError) ---
-    default_groups = [
-        {'quantity': 5, 'daily_km': 100, 'consumption': 20.0, 'arrival_time': 18, 'departure_time': 8},
-        {'quantity': 3, 'daily_km': 300, 'consumption': 20.0, 'arrival_time': 10, 'departure_time': 12}
-    ]
-    
-    # Inizializza num_groups_tab1 e vehicle_groups_tab1 con i valori di default se non presenti
-    st.session_state.setdefault('num_groups_tab1', 2)
-    st.session_state.setdefault('vehicle_groups_tab1', default_groups)
-    
-    # Se il numero di gruppi o la lista è vuota, resetta al default (gestione di input manuali a 0)
-    if st.session_state['num_groups_tab1'] == 0 or len(st.session_state['vehicle_groups_tab1']) == 0:
-        st.session_state['num_groups_tab1'] = 2
-        st.session_state['vehicle_groups_tab1'] = default_groups
-        
-    if 'optimization_results' not in st.session_state: st.session_state['optimization_results'] = None
-    if 'optimization_alternatives' not in st.session_state: st.session_state['optimization_alternatives'] = []
-    if 'df_schedule_final' not in st.session_state: st.session_state['df_schedule_final'] = pd.DataFrame()
-    if 'vehicles_status_final' not in st.session_state: st.session_state['vehicles_status_final'] = []
-    if 'optimization_log' not in st.session_state: st.session_state['optimization_log'] = []
-
-    # --- Sidebar Inputs ---
-    st.sidebar.header(get_text("sidebar_config_params"))
-    
-    all_charger_costs = get_charger_costs()
-    default_ac11 = all_charger_costs["AC_11"]
-    default_ac22 = all_charger_costs["AC_22"]
-    default_dc20 = all_charger_costs["DC_20"]
-    default_dc30 = all_charger_costs["DC_30"]
-    default_dc60 = all_charger_costs["DC_60"]
-    default_dc90 = all_charger_costs["DC_90"]
-    default_dc120 = all_charger_costs["DC_120"]
-
-    with st.sidebar.expander(get_text("economic_tech_params"), expanded=True):
-        budget = st.number_input(get_text("budget_available"), min_value=1000, value=50000, step=1000, key="budget_tab1")
-        max_power = st.number_input(get_text("max_power_kw"), min_value=10, value=150, step=5, key="max_power_tab1")
-        
-        col_t1, col_t2 = st.columns(2)
-        # AC Turnover/Slots
-        ac_slots_default = st.session_state.get('ac_turnover_tab1', 4)
-        ac_slots = col_t1.number_input(get_text("ac_turnover"), min_value=1, value=ac_slots_default, step=1, key="ac_turnover_tab1", help="Numero di volte che la singola colonnina AC può ricaricare veicoli al giorno (Slot/Cicli)")
-        
-        # DC Turnover/Slots
-        dc_slots_default = st.session_state.get('dc_turnover_tab1', 6)
-        dc_slots = col_t2.number_input(get_text("dc_turnover"), min_value=1, value=dc_slots_default, step=1, key="dc_turnover_tab1", help="Numero di volte che la singola colonnina DC può ricaricare veicoli al giorno (Slot/Cicli)")
-
-        with st.expander(get_text("charger_details_expander")):
-            st.subheader("Colonnine AC")
-            col_ac_11, col_ac_22 = st.columns(2)
-            with col_ac_11:
-                st.markdown("**AC 11 kW**")
-                ac11_unit = st.number_input(get_text("unit_cost"), min_value=100, value=default_ac11["unit"], key="ac11_unit")
-                ac11_install = st.number_input(get_text("installation_cost"), min_value=100, value=default_ac11["install"], key="ac11_install")
-            with col_ac_22:
-                st.markdown("**AC 22 kW**")
-                ac22_unit = st.number_input(get_text("unit_cost"), min_value=100, value=default_ac22["unit"], key="ac22_unit")
-                ac22_install = st.number_input(get_text("installation_cost"), min_value=100, value=default_ac22["install"], key="ac22_install")
+            if best_option:
+                colonnina_to_use, charge_start, charge_end, energy_to_charge = best_option
                 
-            st.subheader("Colonnine DC")
-            col_dc_20, col_dc_30, col_dc_60, col_dc_90, col_dc_120 = st.columns(5)
-            with col_dc_20:
-                st.markdown("**DC 20 kW**")
-                dc20_unit = st.number_input(get_text("unit_cost"), min_value=1000, value=default_dc20["unit"], key="dc20_unit")
-                dc20_install = st.number_input(get_text("installation_cost"), min_value=100, value=default_dc20["install"], key="dc20_install")
-            with col_dc_30:
-                st.markdown("**DC 30 kW**")
-                dc30_unit = st.number_input(get_text("unit_cost"), min_value=1000, value=default_dc30["unit"], key="dc30_unit")
-                dc30_install = st.number_input(get_text("installation_cost"), min_value=100, value=default_dc30["install"], key="dc30_install")
-            with col_dc_60:
-                st.markdown("**DC 60 kW**")
-                dc60_unit = st.number_input(get_text("unit_cost"), min_value=1000, value=default_dc60["unit"], key="dc60_unit")
-                dc60_install = st.number_input(get_text("installation_cost"), min_value=100, value=default_dc60["install"], key="dc60_install")
-            with col_dc_90:
-                st.markdown("**DC 90 kW**")
-                dc90_unit = st.number_input(get_text("unit_cost"), min_value=1000, value=default_dc90["unit"], key="dc90_unit")
-                dc90_install = st.number_input(get_text("installation_cost"), min_value=100, value=default_dc90["install"], key="dc90_install")
-            with col_dc_120:
-                st.markdown("**DC 120 kW**")
-                dc120_unit = st.number_input(get_text("unit_cost"), min_value=1000, value=default_dc120["unit"], key="dc120_unit")
-                dc120_install = st.number_input(get_text("installation_cost"), min_value=100, value=default_dc120["install"], key="dc120_install")
+                # Calculate actual duration needed for the charged energy
+                actual_duration_needed = energy_to_charge / colonnina_to_use['potenza']
                 
-            
-            st.subheader(get_text("energy_costs"))
-            private_cost = st.number_input(get_text("private_charge_cost"), min_value=0.01, value=0.25, step=0.01, key="private_cost_tab1", help="Costo dell'energia elettrica aziendale/privata")
-            public_cost = st.number_input(get_text("public_charge_cost"), min_value=0.1, value=0.60, step=0.01, key="public_cost_tab1", help="Costo stimato della ricarica pubblica (per calcolare il risparmio)")
-            fuel_equivalent_cost = st.number_input(get_text("fuel_equivalent_cost"), min_value=0.1, value=1.00, step=0.01, key="fuel_equivalent_cost_tab1", help="Costo kWh equivalente a benzina/diesel (es. 1.8€/L / 5km/kWh = 0.36€/kWh)")
+                # Ensure final duration respects minimum charge duration and slot limits
+                final_charge_duration = max(MIN_DURATA_RICARICA, actual_duration_needed)
+                final_charge_duration = min(final_charge_duration, charge_end - charge_start)
+
+                # If the vehicle needs very little energy to finish, allow a shorter charge
+                if vehicle['energia_rimanente'] <= colonnina_to_use['potenza'] * MIN_DURATA_RICARICA:
+                    final_charge_duration = min(final_charge_duration, vehicle['energia_rimanente'] / colonnina_to_use['potenza'])
+                    if final_charge_duration < 0.01: # Avoid negligible charges
+                        continue
+
+                if final_charge_duration > 0.01: # Ensure a meaningful charge
+                    actual_energy_charged = colonnina_to_use['potenza'] * final_charge_duration
+                    vehicle['energia_rimanente'] -= actual_energy_charged
+                    something_charged_in_this_iteration = True
+                    
+                    # Traccia la colonnina usata da questo veicolo (per logica optional)
+                    if not vehicle['colonnina_assegnata']:
+                         vehicle['colonnina_assegnata'] = colonnina_to_use['nome']
+                         
+                    # Update the colonnina's available slots
+                    new_slots_for_colonnina = []
+                    # Calcola la fine effettiva della ricarica per lo scheduling
+                    charge_end_time = charge_start + final_charge_duration
+                    # Calcola il tempo di rilascio slot (fine ricarica + intervallo minimo)
+                    release_time = charge_end_time + MIN_INTERVALLO_RICARICA_SIM
+                    
+                    # Rimuovi lo slot utilizzato e aggiungi gli slot residui
+                    for s_idx, (s_start, s_end) in enumerate(colonnina_to_use['available_slots']):
+                        # Se lo slot inizia prima e finisce dopo la ricarica
+                        if s_start < charge_start and s_end > release_time:
+                            new_slots_for_colonnina.append((s_start, charge_start)) # Parte prima della ricarica
+                            new_slots_for_colonnina.append((release_time, s_end)) # Parte dopo l'intervallo
+                        # Se lo slot è interamente prima della ricarica
+                        elif s_end <= charge_start:
+                             new_slots_for_colonnina.append((s_start, s_end))
+                        # Se lo slot è interamente dopo la ricarica
+                        elif s_start >= release_time:
+                             new_slots_for_colonnina.append((s_start, s_end))
+                        # Caso in cui la ricarica taglia solo la fine dello slot
+                        elif s_start < charge_start and s_end <= release_time and s_end > charge_start:
+                             new_slots_for_colonnina.append((s_start, charge_start))
+                        # Caso in cui la ricarica taglia solo l'inizio dello slot
+                        elif s_start >= charge_start and s_start < release_time and s_end > release_time:
+                             new_slots_for_colonnina.append((release_time, s_end))
+                        # Caso in cui la ricarica occupa l'intero slot (o quasi)
+                        # Altrimenti lo slot viene completamente rimosso dal ciclo di iterazione implicito
+                    
+                    colonnina_to_use['available_slots'] = sorted([slot for slot in new_slots_for_colonnina if slot[1] - slot[0] >= 0.01], key=lambda x: x[0])
 
 
-    # Raccogli i costi personalizzati
-    custom_charger_costs = {
-        "AC_11": {"unit": ac11_unit, "install": ac11_install, "power": default_ac11["power"], "maint_annual": default_ac11["maint_annual"]},
-        "AC_22": {"unit": ac22_unit, "install": ac22_install, "power": default_ac22["power"], "maint_annual": default_ac22["maint_annual"]},
-        "DC_20": {"unit": dc20_unit, "install": dc20_install, "power": default_dc20["power"], "maint_annual": default_dc20["maint_annual"]},
-        "DC_30": {"unit": dc30_unit, "install": dc30_install, "power": default_dc30["power"], "maint_annual": default_dc30["maint_annual"]},
-        "DC_60": {"unit": dc60_unit, "install": dc60_install, "power": default_dc60["power"], "maint_annual": default_dc60["maint_annual"]},
-        "DC_90": {"unit": dc90_unit, "install": dc90_install, "power": default_dc90["power"], "maint_annual": default_dc90["maint_annual"]},
-        "DC_120": {"unit": dc120_unit, "install": dc120_install, "power": default_dc120["power"], "maint_annual": default_dc120["maint_annual"]},
-    }
+                    # Record the booking
+                    colonnina_to_use['bookings'].append({
+                        'veicolo': vehicle['nome'],
+                        'inizio': charge_start,
+                        'fine': charge_end_time,
+                        'energia': actual_energy_charged,
+                        'tempo_ricarica': final_charge_duration
+                    })
+                    colonnina_to_use['bookings'].sort(key=lambda x: x['inizio'])
+
+                    risultati['utilizzo_colonnine_ore'][f"{colonnina_to_use['potenza']} kW"] += final_charge_duration
+                    risultati['prenotazioni'].append({
+                        'veicolo': vehicle['nome'],
+                        'colonnina': colonnina_to_use['nome'],
+                        'inizio': charge_start,
+                        'fine': charge_end_time,
+                        'energia': actual_energy_charged,
+                        'tipo_colonnina': colonnina_to_use['tipo']
+                    })
+                    # *****************************************************************
+                    # AGGIORNAMENTO LOGICA: ESCI DAL LOOP DELLE COLONNINE DOPO L'ASSEGNAZIONE
+                    # Questo garantisce che un'auto non cerchi più colonnine in parallelo.
+                    # *****************************************************************
+                    break 
+
+        if not something_charged_in_this_iteration:
+            break # Non è stato possibile assegnare altre ricariche
+
+    # Final aggregation for results
+    risultati['energia_totale'] = sum(v['energia_richiesta'] for v in veicoli_for_sim)
+    risultati['energia_caricata'] = sum(sum(b['energia'] for b in col['bookings']) for col in colonnine_instances)
+    risultati['energia_esterna'] = risultati['energia_totale'] - risultati['energia_caricata']
     
-    current_costs_data = get_charger_costs(custom_charger_costs)
+    # Aggiungi tolleranza per float
+    risultati['auto_caricate_completamente'] = sum(1 for v in veicoli_for_sim if v['energia_rimanente'] <= 0.01) 
 
+    if risultati['energia_esterna'] > 0:
+        risultati['tempo_esterno_stimato'] = (risultati['energia_esterna'] / 11) * 1.5 # Simplified assumption
+        risultati['costo_ricariche_esterne'] = risultati['energia_esterna'] * prezzo_energia_pubblica
 
-    # --- Vehicle Groups Configuration ---
-    st.subheader(get_text("vehicle_config"))
+    total_colonnine_capacity_kwh = sum(col['potenza'] * ore_disponibili for col in colonnine_instances)
+    risultati['tasso_utilizzo'] = (risultati['energia_caricata'] / total_colonnine_capacity_kwh) * 100 if total_colonnine_capacity_kwh > 0 else 0
+
+    risultati['costo_operativo_interno'] = risultati['energia_caricata'] * costo_energia_interna
     
-    # st.session_state['num_groups_tab1'] è garantito esistere qui
-    num_groups = st.number_input(get_text("num_vehicle_groups"), min_value=1, value=st.session_state['num_groups_tab1'], step=1, key="num_groups_tab1")
+    costo_totale_esterno_se_nessuna_colonnina = risultati['energia_totale'] * prezzo_energia_pubblica
+    risparmio_giornaliero = costo_totale_esterno_se_nessuna_colonnina - risultati['costo_ricariche_esterne'] - risultati['costo_operativo_interno']
+    risultati['risparmio_annuo_stimato'] = risparmio_giornaliero * 365
 
-    # Adatta la lista dei gruppi alla dimensione richiesta
-    if len(st.session_state['vehicle_groups_tab1']) > num_groups:
-        st.session_state['vehicle_groups_tab1'] = st.session_state['vehicle_groups_tab1'][:num_groups]
-    while len(st.session_state['vehicle_groups_tab1']) < num_groups:
-        st.session_state['vehicle_groups_tab1'].append({'quantity': 1, 'daily_km': 100, 'consumption': 20.0, 'arrival_time': 18, 'departure_time': 8})
-        
-    vehicle_groups = st.session_state['vehicle_groups_tab1']
+    # Calculate total initial investment for Tab 2
+    total_investment_tab2 = sum(quantita * costi_investimento_colonnine.get(tipo, 0) for tipo, quantita in colonnine_config.items())
+    risultati['investimento_totale_iniziale'] = total_investment_tab2
+
+    risultati['ROI'] = (risultati['risparmio_annuo_stimato'] / risultati['investimento_totale_iniziale']) * 100 if risultati['investimento_totale_iniziale'] > 0 else 0
     
-    for i in range(num_groups):
-        with st.expander(get_text("group_header").format(i=i+1), expanded=True):
-            col1, col2, col3, col4, col5 = st.columns(5)
-            
-            # Assicura che l'indice esista prima di accedere
-            if i < len(vehicle_groups):
-                group_data = vehicle_groups[i]
-            else:
-                # Caso di fallback (non dovrebbe accadere con la logica sopra)
-                group_data = {'quantity': 1, 'daily_km': 100, 'consumption': 20.0, 'arrival_time': 18, 'departure_time': 8}
+    risultati['veicoli_simulati'] = veicoli_for_sim
 
+    return risultati
 
-            group_data['quantity'] = col1.number_input(get_text("group_quantity"), min_value=1, value=group_data['quantity'], step=1, key=f"qty_{i}")
-            group_data['daily_km'] = col2.number_input(get_text("group_daily_km"), min_value=10, value=group_data['daily_km'], step=10, key=f"km_{i}")
-            group_data['consumption'] = col3.number_input(get_text("group_consumption"), min_value=10.0, max_value=50.0, value=group_data['consumption'], step=0.1, key=f"cons_{i}")
-            group_data['arrival_time'] = col4.slider(get_text("group_arrival_time"), min_value=0, max_value=23, value=group_data['arrival_time'], step=1, key=f"arr_{i}")
-            group_data['departure_time'] = col5.slider(get_text("group_departure_time"), min_value=0, max_value=23, value=group_data['departure_time'], step=1, key=f"dep_{i}")
-            
-            # Aggiorna il gruppo nella lista principale
-            vehicle_groups[i] = group_data
+# ====================================================================
+# INTERFACCIA UTENTE (STREAMLIT)
+# ====================================================================
 
+# Configurazione della pagina (opzionale)
+st.set_page_config(layout="wide")
 
-    # --- Calcolo e Logica ---
-    if st.button(get_text("calculate_optimization"), key="calc_opt_btn"):
-        
-        # Validazione base
-        if sum(g['quantity'] for g in vehicle_groups) == 0:
-            st.error("Inserisci almeno un veicolo.")
-            st.session_state['optimization_results'] = None
-            return
+# Simula la struttura a tab
+tab2 = st.container()
 
-        # Parametri completi
-        params = {
-            "budget": budget,
-            "max_power": max_power,
-            "private_cost": private_cost,
-            "public_cost": public_cost,
-            "ac_slots": ac_slots,
-            "dc_slots": dc_slots,
-            "charger_costs": current_costs_data,
-            "vehicle_groups": vehicle_groups,
-            "fuel_equivalent_cost": fuel_equivalent_cost
-        }
-        
-        # 1. Brute force approssimato
-        all_configs_approx = calculate_optimization_results(params)
-        st.session_state['optimization_alternatives'] = all_configs_approx # Salva tutte le configurazioni
-
-        if not all_configs_approx:
-            st.error(get_text("no_solution_found"))
-            st.session_state['optimization_results'] = None
-        else:
-            with st.spinner("Eseguo simulazione di scheduling dettagliata per l'ottimizzazione..."):
-                # 2. Simulazione di scheduling e selezione finale
-                # all_configs_updated è ora ordinata per Veicoli Schedulati / Costo (logica corretta)
-                best_results, df_schedule, vehicles_status, log_steps, all_configs_updated = find_final_optimized_config(all_configs_approx, params)
-
-            st.session_state['optimization_results'] = best_results
-            st.session_state['df_schedule_final'] = df_schedule
-            st.session_state['vehicles_status_final'] = vehicles_status
-            st.session_state['optimization_alternatives'] = all_configs_updated # Aggiorna con i risultati di schedulazione realistici
-
-            with st.expander("Log di Ottimizzazione", expanded=False):
-                 st.code("\n".join(log_steps))
-
-
-    # --- Visualizzazione Risultati ---
-    if st.session_state['optimization_results']:
-        results = st.session_state['optimization_results']
-        df_schedule = st.session_state['df_schedule_final']
-        vehicles_status = st.session_state['vehicles_status_final']
-        
-        st.divider()
-        st.subheader(get_text("optimization_results"))
-        
-        
-        # Sezione Configurazione Raccomandata
-        st.markdown(f"### {get_text('final_config_header')}")
-        final_config = {k: v for k, v in results['config'].items() if v > 0}
-        st.code(str(final_config).replace("'", "").replace("{", "").replace("}", ""))
-        
-        col_kpi_1, col_kpi_2, col_kpi_3, col_kpi_4, col_kpi_5 = st.columns(5)
-        
-        # 1. Costo Iniziale
-        col_kpi_1.metric(get_text("total_initial_cost"), f"€ {results['total_initial_cost']:,.0f}".replace(",", "."))
-        
-        # 2. Payback Period
-        payback_display = f"{results['payback_period']:.1f} anni" if results['payback_period'] != float('inf') else "N/A"
-        col_kpi_2.metric(get_text("payback_period_label"), payback_display)
-        
-        # 3. ROI Annuale
-        col_kpi_3.metric(get_text("annual_roi_label"), f"{results['annual_roi']:.1f} %")
-        
-        # 4. Copertura / Schedulazione
-        col_kpi_4.metric(get_text("combined_efficiency"), f"{results['combined_efficiency']:.1f} %")
-        
-        # 5. Potenza Impegnata
-        col_kpi_5.metric(get_text("power_label"), f"{results['total_power']} kW")
-
-        # Messaggio di stato
-        if results['is_full_charge']:
-            st.success(get_text("full_charge_success"))
-        else:
-            st.warning(get_text("partial_charge_warning") + 
-                       f" Ricaricati completamente: **{results['vehicles_scheduled']} / {results['total_vehicles_expected']}** veicoli.")
-        
-        
-        # Sezione Dettagli Finanziari ed Energetici
-        st.markdown("#### Dettagli Finanziari ed Energetici (Annuali)")
-        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-        
-        # Energia Caricata Internamente (kWh/Anno)
-        annual_energy = results['internal_energy_charged'] * 300
-        col_f1.metric(get_text("energy_internal_charged_label"), f"{annual_energy:,.0f} kWh".replace(",", "."))
-        
-        # Risparmio vs. Pubblico (Netto)
-        col_f2.metric(get_text("estimated_annual_savings"), f"€ {results['annual_net_savings']:,.0f}".replace(",", "."), help="Risparmio Netto Annuo rispetto al costo della ricarica pubblica EV")
-        
-        # Risparmio vs. Carburante
-        col_f3.metric(get_text("annual_savings_vs_fuel_label"), f"€ {results['annual_savings_vs_fuel']:,.0f}".replace(",", "."), help="Risparmio Netto Annuo rispetto al costo equivalente di Benzina/Diesel")
-
-        # Costo Manutenzione
-        col_f4.metric(get_text("annual_maint_cost_label"), f"€ {results['total_maint_annual']:,.0f}".replace(",", "."), help="Costo Annuo per manutenzione/software colonnine (OPEX)")
-
-        # Energia e Costo Esterno
-        if results['energy_external_kwh'] > 0:
-            st.markdown(f"---")
-            st.info(f"**{get_text('energy_external_needed_label')}**: {results['energy_external_kwh']:,.0f} kWh/Anno. "
-                    f"**{get_text('cost_external_annual_label')}**: € {results['cost_external_annual']:,.0f}/Anno. "
-                    "Questi veicoli dovranno ricaricare all'esterno o non copriranno i km giornalieri.".replace(",", "."))
-        
-        
-        # Sezione Gantt e Dettagli
-        st.markdown(f"#### {get_text('charging_plan_header')}")
-        
-        if not df_schedule.empty:
-            
-            # Formattazione per Plotly Gantt
-            df_plot = df_schedule.copy()
-            df_plot['Duration'] = df_plot['End_dt'] - df_plot['Start_dt']
-            df_plot['Start_formatted'] = df_plot['End_dt'].dt.strftime('%H:%M')
-            df_plot['End_formatted'] = df_plot['End_dt'].dt.strftime('%H:%M')
-            
-            # Ordina per Caricatore (per raggruppamento visivo)
-            df_plot.sort_values(by='Charger', inplace=True)
-
-            fig_gantt = px.timeline(df_plot, x_start="Start_dt", x_end="End_dt", y="Charger", 
-                                    color="Vehicle", 
-                                    text="Vehicle",
-                                    hover_data={
-                                        "Vehicle": True,
-                                        "Start_formatted": True,
-                                        "End_formatted": True,
-                                        "Charger": True,
-                                        "Type": False, # Non mostrare nel tooltip, è nel nome del caricatore
-                                    },
-                                    title=get_text("charging_plan_header"))
-
-            fig_gantt.update_traces(textposition='outside')
-            fig_gantt.update_yaxes(autorange="reversed") # Inverti l'ordine per avere il primo caricatore in alto
-            fig_gantt.update_xaxes(title="Ora del Giorno (h)", tickformat="%H:%M",
-                                   range=[df_plot['Start_dt'].min() - timedelta(minutes=15), df_plot['End_dt'].max() + timedelta(minutes=15)])
-            fig_gantt.update_layout(height=400 + 40 * len(df_plot['Charger'].unique()),
-                                    margin=dict(l=20, r=20, t=50, b=20),
-                                    xaxis_tickangle=-45)
-            
-            st.plotly_chart(fig_gantt, use_container_width=True)
-
-            
-            # Tabella Dettagli Ricariche
-            st.markdown(f"#### {get_text('charging_table_header')}")
-            
-            # Dettagli per il veicolo non schedulato/parziale
-            vehicle_details = []
-            for v in vehicles_status:
-                energy_charged = v['charged_status']
-                energy_needed = v['energy_needed']
-                status = "✅ Completato" if energy_charged >= energy_needed * 0.99 else (f"⚠️ Parziale ({energy_charged / energy_needed * 100:.1f} %)" if energy_charged > 0 else "❌ Mancante")
-                
-                vehicle_details.append({
-                    "Veicolo": v['id'],
-                    "Gruppo": v['group_id'],
-                    "Energia Richiesta (kWh)": f"{energy_needed:.1f}",
-                    "Energia Caricata (kWh)": f"{energy_charged:.1f}",
-                    "Status": status
-                })
-                
-            df_vehicle_status = pd.DataFrame(vehicle_details)
-            st.dataframe(df_vehicle_status, use_container_width=True, height=200)
-
-
-        # Sezione Alternativa (AGGIORNATA PER INCLUDERE TUTTI I KPI SIMULATI)
-        st.markdown("---")
-        st.markdown("#### Alternativa: Configurazioni Ottimali Simulate")
-        
-        # Filtra solo le top N alternative (esclusa la prima, che è la 'migliore' già visualizzata)
-        # La lista 'optimization_alternatives' è ora ordinata per Veicoli Schedulati / Costo
-        top_alternatives = st.session_state['optimization_alternatives'][1:10] 
-        
-        if top_alternatives:
-            
-            alt_data = []
-            for alt in top_alternatives:
-                config_str = str({k: v for k, v in alt['config'].items() if v > 0}).replace("'", "").replace("{", "").replace("}", "")
-                alt_data.append({
-                    get_text("config_info_gantt"): config_str,
-                    get_text("cost_label"): alt['total_initial_cost'], # Raw value for formatting
-                    get_text("vehicles_scheduled"): f"{alt.get('vehicles_scheduled', 0)} / {results.get('total_vehicles_expected', '?')}", # Use results' total expected to be consistent
-                    get_text("efficiency_score_label"): alt['combined_efficiency'], # Raw value
-                    get_text("energy_external_needed_label"): alt.get('energy_external_kwh', 0), # Annual value
-                })
-            
-            df_alt = pd.DataFrame(alt_data)
-            
-            # Formattazione per visualizzazione
-            df_alt[get_text("cost_label")] = df_alt[get_text("cost_label")].apply(lambda x: f"€ {x:,.0f}".replace(",", "."))
-            df_alt[get_text("efficiency_score_label")] = df_alt[get_text("efficiency_score_label")].apply(lambda x: f"{x:.1f} %")
-            df_alt[get_text("energy_external_needed_label")] = df_alt[get_text("energy_external_needed_label")].apply(lambda x: f"{x:,.0f} kWh/Anno".replace(",", "."))
-
-            df_alt.index = df_alt.index + 1
-            df_alt.index.name = "Rank" 
-            
-            st.dataframe(df_alt, use_container_width=True)
-        else:
-            st.info("Nessuna altra configurazione valida trovata entro i limiti di ricerca.")
-            
-
-# --- Render Functions (Tab 2) ---
-def render_tab2():
-    st.header(get_text("t2_header"))
-    st.markdown(get_text("t2_intro"))
-
-    # Recupera i gruppi veicoli e i parametri tecnici dalla Tab 1
-    # st.session_state['vehicle_groups_tab1'] è garantito esistere grazie all'inizializzazione in render_tab1 (o main logic)
-    if 'vehicle_groups_tab1' not in st.session_state or sum(g['quantity'] for g in st.session_state['vehicle_groups_tab1']) == 0:
-        st.warning("Configura i Gruppi Veicoli nella scheda 'Ottimizzatore Colonnine' (Tab 1) prima di procedere.")
-        return
-        
-    # Costi
-    all_charger_costs = get_charger_costs()
-    ac_slots = st.session_state.get('ac_turnover_tab1', 4)
-    dc_slots = st.session_state.get('dc_turnover_tab1', 6)
-    
-    # Gruppi
-    vehicle_groups = st.session_state['vehicle_groups_tab1']
-    total_vehicles = sum(g['quantity'] for g in vehicle_groups)
-    all_vehicles = generate_vehicles_list(vehicle_groups)
-    total_daily_energy_req = sum(v['energy_needed'] for v in all_vehicles)
-    
-    st.subheader(get_text("t2_current_config"))
-    st.markdown(get_text("t2_config_details"))
-    
-    col_ac11, col_ac22, col_dc20, col_dc30, col_dc60, col_dc90, col_dc120 = st.columns(7)
-    
-    config = {
-        "AC_11": col_ac11.number_input("AC 11 kW", min_value=0, value=1, step=1, key="t2_ac11_qty"),
-        "AC_22": col_ac22.number_input("AC 22 kW", min_value=0, value=0, step=1, key="t2_ac22_qty"),
-        "DC_20": col_dc20.number_input("DC 20 kW", min_value=0, value=0, step=1, key="t2_dc20_qty"),
-        "DC_30": col_dc30.number_input("DC 30 kW", min_value=0, value=1, step=1, key="t2_dc30_qty"),
-        "DC_60": col_dc60.number_input("DC 60 kW", min_value=0, value=0, step=1, key="t2_dc60_qty"),
-        "DC_90": col_dc90.number_input("DC 90 kW", min_value=0, value=0, step=1, key="t2_dc90_qty"),
-        "DC_120": col_dc120.number_input("DC 120 kW", min_value=0, value=0, step=1, key="t2_dc120_qty"),
-    }
-    
-    # Rimuove le colonnine con 0 unità per la simulazione
-    config_filtered = {k: v for k, v in config.items() if v > 0}
-    
-    if st.button(get_text("t2_run_simulation"), key="t2_run_btn"):
-        if sum(config_filtered.values()) == 0:
-            st.error("Inserisci almeno un caricatore per la simulazione.")
-            st.session_state['t2_results'] = None
-            return
-
-        with st.spinner("Esecuzione simulazione di schedulazione..."):
-            df_schedule, vehicles_status = simulate_charging_plan(
-                config_filtered, vehicle_groups, all_charger_costs, ac_slots, dc_slots
-            )
-            
-            # Calcoli KPI
-            vehicles_scheduled = sum(1 for v in vehicles_status if v['charged_status'] >= v['energy_needed'] * 0.99)
-            energy_charged = sum(v['charged_status'] for v in vehicles_status)
-            energy_coverage = (energy_charged / (total_daily_energy_req + 0.001)) * 100
-            
-            st.session_state['t2_results'] = {
-                "config": config_filtered,
-                "df_schedule": df_schedule,
-                "vehicles_status": vehicles_status,
-                "vehicles_scheduled": vehicles_scheduled,
-                "total_vehicles": total_vehicles,
-                "energy_charged": energy_charged,
-                "energy_coverage": energy_coverage,
-                "total_daily_energy_req": total_daily_energy_req
-            }
-
-    # Visualizzazione Risultati
-    if st.session_state.get('t2_results'):
-        results = st.session_state['t2_results']
-        
-        st.divider()
-        st.subheader(get_text("t2_results"))
-        
-        col_m1, col_m2, col_m3 = st.columns(3)
-        
-        col_m1.metric(get_text("t2_vehicles_served"), f"{results['vehicles_scheduled']} / {results['total_vehicles']}", 
-                      delta_color="normal")
-        col_m2.metric(get_text("t2_energy_coverage"), f"{results['energy_coverage']:.1f} %")
-        col_m3.metric(get_text("t2_time_used"), f"{results['energy_charged']:.1f} kWh", 
-                      help=f"{get_text('t2_time_needed')}: {results['total_daily_energy_req']:.1f} kWh")
-
-        # Configurazione Utilizzata
-        st.markdown(f"#### Configurazione Attuale Sottoposta al Test:")
-        st.code(str({k: v for k, v in results['config'].items() if v > 0}).replace("'", "").replace("{", "").replace("}", ""))
-
-        # Gantt Chart (riutilizzo codice Tab 1)
-        df_schedule = results['df_schedule']
-        if not df_schedule.empty:
-            st.markdown(f"#### {get_text('charging_plan_header')} ")
-            
-            df_plot = df_schedule.copy()
-            df_plot['Duration'] = df_plot['End_dt'] - df_plot['Start_dt']
-            df_plot['Start_formatted'] = df_plot['Start_dt'].dt.strftime('%H:%M')
-            df_plot['End_formatted'] = df_plot['End_dt'].dt.strftime('%H:%M')
-            df_plot.sort_values(by='Charger', inplace=True)
-
-            fig_gantt = px.timeline(df_plot, x_start="Start_dt", x_end="End_dt", y="Charger", 
-                                    color="Vehicle", 
-                                    text="Vehicle",
-                                    hover_data={
-                                        "Vehicle": True,
-                                        "Start_formatted": True,
-                                        "End_formatted": True,
-                                        "Charger": True,
-                                        "Type": False, 
-                                    },
-                                    title=get_text("charging_plan_header") + " (Test)")
-
-            fig_gantt.update_traces(textposition='outside')
-            fig_gantt.update_yaxes(autorange="reversed") 
-            fig_gantt.update_xaxes(title="Ora del Giorno (h)", tickformat="%H:%M",
-                                   range=[df_plot['Start_dt'].min() - timedelta(minutes=15), df_plot['End_dt'].max() + timedelta(minutes=15)])
-            fig_gantt.update_layout(height=400 + 40 * len(df_plot['Charger'].unique()),
-                                    margin=dict(l=20, r=20, t=50, b=20),
-                                    xaxis_tickangle=-45)
-            
-            st.plotly_chart(fig_gantt, use_container_width=True)
-
-# --- Render Functions (Tab 3) ---
-def render_tab3():
-    st.header(get_text("t3_header"))
-    st.markdown(get_text("t3_intro"))
-    
-    all_charger_costs = get_charger_costs()
-    charger_options = {
-        "AC 22 kW": "AC_22",
-        "DC 30 kW": "DC_30",
-        "DC 60 kW": "DC_60",
-        "DC 120 kW": "DC_120",
-    }
-    
-    st.subheader(get_text("t3_charger_selection"))
-    col_sel, col_cost = st.columns(2)
-    
-    selected_charger_name = col_sel.selectbox("Tipo di Colonnina", list(charger_options.keys()), key="t3_charger_select")
-    selected_charger_key = charger_options[selected_charger_name]
-    
-    costs = all_charger_costs[selected_charger_key]
-    
-    # Parametri di input finanziari
-    with col_cost:
-        st.markdown("**Parametri Finanziari**")
-        investment = st.number_input(get_text("t3_initial_investment"), min_value=1000, value=costs["unit"] + costs["install"], step=100, key="t3_investment", help="Costo totale di acquisto e installazione")
-        cost_of_energy = st.number_input(get_text("t3_cost_of_energy"), min_value=0.01, value=0.18, step=0.01, key="t3_cost_of_energy")
-        public_price = st.number_input(get_text("t3_public_price"), min_value=0.1, value=0.55, step=0.01, key="t3_public_price")
-        avg_utilization = st.number_input(get_text("t3_avg_utilization"), min_value=0.5, max_value=24.0, value=4.0, step=0.5, key="t3_avg_utilization")
-        target_roi = st.number_input(get_text("t3_target_roi"), min_value=0, max_value=100, value=15, step=1, key="t3_target_roi")
-    
-    
-    if st.button(get_text("t3_calc_roi"), key="t3_calc_btn"):
-        # Costanti
-        DAYS_PER_YEAR = 365
-        MAINT_ANNUAL = costs['maint_annual']
-        POWER_KW = costs['power']
-        
-        # Calcoli
-        # Energia erogata annua (assumendo efficienza 0.9 per AC, 0.8 per DC)
-        efficiency = 0.8 if 'DC' in selected_charger_key else 0.9
-        annual_energy_kwh = POWER_KW * avg_utilization * DAYS_PER_YEAR * efficiency
-        
-        # Ricavo
-        annual_revenue = annual_energy_kwh * public_price
-        
-        # Costo Operativo
-        annual_energy_cost = annual_energy_kwh * cost_of_energy
-        annual_opex_cost = annual_energy_cost + MAINT_ANNUAL
-        
-        # Profitto
-        annual_net_profit = annual_revenue - annual_opex_cost
-        
-        # Payback Period e ROI
-        if annual_net_profit > 0:
-            payback_period = investment / annual_net_profit
-            annual_roi = (annual_net_profit / investment) * 100
-        else:
-            payback_period = float('inf')
-            annual_roi = 0.0
-            
-        st.session_state['t3_roi_results'] = {
-            "investment": investment,
-            "annual_revenue": annual_revenue,
-            "annual_opex_cost": annual_opex_cost,
-            "annual_net_profit": annual_net_profit,
-            "payback_period": payback_period,
-            "annual_roi": annual_roi
-        }
-    
-    
-    # Visualizzazione Risultati
-    if st.session_state.get('t3_roi_results'):
-        results = st.session_state['t3_roi_results']
-        
-        st.divider()
-        st.subheader(get_text("t3_roi_results"))
-        
-        col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
-        
-        # 1. Investimento Iniziale
-        col_m1.metric(get_text("t3_initial_investment"), f"€ {results['investment']:,.0f}".replace(",", "."))
-        
-        # 2. Ricavo Annuo
-        col_m2.metric(get_text("t3_roi_annual_revenue"), f"€ {results['annual_revenue']:,.0f}".replace(",", "."))
-        
-        # 3. Costo Annuo Operativo (OPEX)
-        col_m3.metric(get_text("t3_roi_annual_cost"), f"€ {results['annual_opex_cost']:,.0f}".replace(",", "."))
-        
-        # 4. Profitto Netto
-        col_m4.metric(get_text("t3_roi_net_profit"), f"€ {results['annual_net_profit']:,.0f}".replace(",", "."), 
-                      delta=f"{results['annual_net_profit']:,.0f}".replace(",", "."), 
-                      delta_color="inverse" if results['annual_net_profit'] < 0 else "normal")
-        
-        # 5. ROI
-        roi_delta = results['annual_roi'] - target_roi
-        col_m5.metric(get_text("t3_roi_perc"), f"{results['annual_roi']:.1f} %", 
-                      delta=f"{roi_delta:.1f} % vs target",
-                      delta_color="normal" if roi_delta >= 0 else "inverse")
-                      
-        # Payback
-        payback_display = f"{results['payback_period']:.1f} anni" if results['payback_period'] != float('inf') else "Non raggiunto"
-        st.info(f"**{get_text('t3_payback')}**: {payback_display}")
-
-# --- Render Functions (Tab 4) ---
-def render_tab4():
-    st.header(get_text("t4_header"))
-    st.markdown(get_text("t4_intro"))
-
-    all_charger_costs = get_charger_costs()
-    wb_options = {
-        "Wallbox 7.4 kW (Monofase)": "WB_7_4",
-        "Wallbox 11 kW (Trifase)": "WB_11",
-    }
-
-    st.subheader("Configurazione e Dettagli Installazione")
-    col_wb, col_inst = st.columns(2)
-    
-    with col_wb:
-        selected_wb_name = st.selectbox(get_text("t4_power_select"), list(wb_options.keys()), key="t4_wb_select")
-        selected_wb_key = wb_options[selected_wb_name]
-        wb_costs = all_charger_costs[selected_wb_key]
-        
-        # Costo Wallbox (Unità) - personalizzabile
-        wb_unit_cost = st.number_input(get_text("t4_wallbox_cost"), min_value=500, value=wb_costs["unit"], step=50, key="t4_wb_unit_cost")
-    
-    # Parametri tecnici di installazione
-    with col_inst:
-        installation_type = st.radio(get_text("t4_installation_type"), [get_text("t4_new_installation"), get_text("t4_existing_predisp")], key="t4_inst_type")
-        distance_m = st.number_input(get_text("t4_distance"), min_value=1, max_value=100, value=15, step=1, key="t4_distance")
-        cable_install_type = st.radio(get_text("t4_cable_install_type"), [get_text("t4_on_wall"), get_text("t4_underground")], key="t4_cable_inst")
-        
-        col_cert, col_fire = st.columns(2)
-        include_cert = col_cert.checkbox(get_text("t4_certification"), value=True, key="t4_cert")
-        condo_fire_cert = col_fire.checkbox(get_text("t4_condo_fire_cert"), value=False, key="t4_fire_cert")
-
-    if st.button(get_text("t4_calc_cost"), key="t4_calc_btn"):
-        
-        # Parametri di base per la stima
-        LABOR_BASE_HOUR = 40  # Costo orario manodopera
-        LABOR_HOURS_WB = 8    # Ore base per installazione wallbox (cablaggio incluso)
-        LABOR_HOURS_ADD_PER_METER = 0.1 # Ore aggiuntive per metro
-        
-        MATERIAL_COST_PER_METER = 20 # Costo cavo + canalina (stimato)
-        if selected_wb_key == "WB_11": # Cavo trifase/sezione maggiore
-            MATERIAL_COST_PER_METER = 30
-        
-        PANEL_COST = 300 # Costo medio quadro/protezioni
-        FIRE_CERT_COST = 350
-        
-        # 1. Costo Wallbox (Unità)
-        total_wb_cost = wb_unit_cost
-        
-        # 2. Costo Materiali (Cavi + Quadro)
-        material_cost_cables = distance_m * MATERIAL_COST_PER_METER
-        material_cost_panel = 0
-        
-        if installation_type == get_text("t4_new_installation"):
-            material_cost_panel = PANEL_COST
-            
-        total_material_cost = material_cost_cables + material_cost_panel
-        
-        # Se c'è predisposizione, i costi sono ridotti
-        if installation_type == get_text("t4_existing_predisp"):
-            total_material_cost = 100 # Costo forfettario minimo per connettori/finali
-            
-        # 3. Costo Manodopera (Lavoro)
-        labor_hours_total = LABOR_HOURS_WB + (distance_m * LABOR_HOURS_ADD_PER_METER)
-        
-        if cable_install_type == get_text("t4_underground"):
-            # Aggiunge un moltiplicatore per lo scavo/posa a terra
-            labor_hours_total *= 1.8 
-        
-        total_labor_cost = labor_hours_total * LABOR_BASE_HOUR
-        
-        # 4. Costi Aggiuntivi
-        cert_cost = 150 if include_cert else 0 # Costo per DiCo
-        fire_cost = FIRE_CERT_COST if condo_fire_cert else 0
-        
-        # 5. Costo Totale
-        total_initial_cost = total_wb_cost + total_material_cost + total_labor_cost + cert_cost + fire_cost
-        
-        st.session_state['t4_results'] = {
-            "wb_cost": total_wb_cost,
-            "material_cost": total_material_cost,
-            "labor_cost": total_labor_cost,
-            "cert_cost": cert_cost + fire_cost,
-            "total_cost": total_initial_cost
-        }
-    
-    # Visualizzazione Risultati
-    if st.session_state.get('t4_results'):
-        results = st.session_state['t4_results']
-        
-        st.divider()
-        st.subheader(get_text("t4_results"))
-        
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        
-        col_m1.metric(get_text("t4_wallbox_cost"), f"€ {results['wb_cost']:,.0f}".replace(",", "."))
-        col_m2.metric(get_text("t4_material_cost"), f"€ {results['material_cost']:,.0f}".replace(",", "."))
-        col_m3.metric(get_text("t4_labor_cost"), f"€ {results['labor_cost']:,.0f}".replace(",", "."))
-        col_m4.metric("Costi Certificazioni/Extra", f"€ {results['cert_cost']:,.0f}".replace(",", "."))
-        
-        st.markdown(f"### {get_text('t4_total_cost')}: **€ {results['total_cost']:,.0f}**".replace(",", "."))
-
-# --- Render Functions (Tab 5) ---
-def render_tab5():
-    st.header(get_text("t5_header"))
-    st.markdown(get_text("t5_intro"))
-    
-    all_charger_costs = get_charger_costs()
-    charger_options = {
-        "AC 22 kW (1 unità)": "AC_22",
-        "DC 30 kW (1 unità)": "DC_30",
-        "DC 60 kW (1 unità)": "DC_60",
-        "DC 120 kW (1 unità)": "DC_120",
-    }
-    
-    st.subheader(get_text("t5_config_select"))
-    col_sel, col_dist, col_labor = st.columns(3)
-    
-    selected_charger_name = col_sel.selectbox("Tipo di Colonnina", list(charger_options.keys()), key="t5_charger_select")
-    selected_charger_key = charger_options[selected_charger_name]
-    costs = all_charger_costs[selected_charger_key]
-    
-    # Parametri di input tecnici
-    with col_dist:
-        distance_m = st.number_input(get_text("t5_distance"), min_value=5, max_value=200, value=25, step=5, key="t5_distance_m")
-        is_underground = st.checkbox(get_text("t5_is_underground"), value=False, key="t5_underground")
-
-    with col_labor:
-        material_multiplier = st.slider(get_text("t5_material_multiplier"), min_value=1.0, max_value=3.0, value=1.5, step=0.1, key="t5_mat_mult", help="Moltiplicatore sul costo base dei materiali (cavi e protezioni) per complessità/lunghezza")
-        labor_multiplier = st.slider(get_text("t5_labor_multiplier"), min_value=1.0, max_value=3.0, value=1.5, step=0.1, key="t5_labor_mult", help="Moltiplicatore sulla manodopera base per complessità dell'installazione")
-        
-
-    # Costi Forfettari Personalizzabili
-    st.subheader("Costi Forfettari e di Ingegneria (Stima)")
-    col_cost_panel, col_cost_eng, col_cost_base_mat = st.columns(3)
-    
-    # Il costo della colonnina è personalizzabile dall'utente per la stima
-    col_cost_panel.markdown(f"**{selected_charger_name}**")
-    charger_unit_cost = col_cost_panel.number_input(get_text("t5_wallbox_cost"), min_value=costs["unit"] - 500, value=costs["unit"], step=100, key="t5_unit_cost")
-    
-    panel_cost = col_cost_eng.number_input(get_text("t5_panel_cost"), min_value=500, value=1500, step=100, key="t5_panel_cost", help="Costo del quadro elettrico principale/di sezionamento")
-    engineering_cost = col_cost_eng.number_input(get_text("t5_engineering_cost"), min_value=0, value=2000, step=100, key="t5_engineering_cost", help="Costo per progettazione elettrica, pratiche autorizzative, ecc.")
-
-    
-    BASE_MATERIAL_PER_METER = 50 
-    if costs['power'] >= 60:
-         BASE_MATERIAL_PER_METER = 100
-         
-    material_base_per_meter = col_cost_base_mat.number_input(get_text("t5_base_material_per_meter"), min_value=20, value=BASE_MATERIAL_PER_METER, step=10, key="t5_mat_base_per_meter", help="Costo stimato per metro (cavi, guaine, tubo)")
-
-    if st.button(get_text("t5_calc_cost"), key="t5_calc_btn"):
-        
-        # Parametri di base per la stima
-        LABOR_BASE_HOURS = 24  # Ore base per installazione colonnina trifase/DC
-        LABOR_BASE_RATE = 40  # Costo orario manodopera
-
-        # 1. Costo Colonnina (Unità)
-        total_charger_cost = charger_unit_cost
-        
-        # 2. Costo Materiali (Cavi + Protezioni + Lavori Edili)
-        # Il costo del materiale è proporzionale alla distanza e alla potenza
-        # Si aggiunge un costo forfettario per le protezioni locali (che è già incluso nell'installazione standard, qui lo si stima separatamente)
-        material_cables_protections_cost = distance_m * material_base_per_meter * material_multiplier
-        
-        scavo_cost = 0
-        if is_underground:
-             # Costo scavo/ripristino per metro
-             scavo_cost = distance_m * 40
-            
-        total_material_cost = material_cables_protections_cost + scavo_cost
-        
-        # 3. Costo Manodopera (Lavoro)
-        # La manodopera è influenzata da distanza e complessità (multiplier)
-        labor_hours_distance_component = (distance_m / 10) * 4 # 4 ore ogni 10 metri
-        
-        total_labor_hours = LABOR_BASE_HOURS + labor_hours_distance_component
-        total_labor_cost = total_labor_hours * LABOR_BASE_RATE * labor_multiplier
-        
-        # 4. Costo Totale
-        total_initial_cost = total_charger_cost + panel_cost + engineering_cost + total_material_cost + total_labor_cost
-        
-        st.session_state['t5_results'] = {
-            "charger_cost": total_charger_cost,
-            "panel_cost": panel_cost,
-            "engineering_cost": engineering_cost,
-            "material_cables_cost": total_material_cost,
-            "labor_cost": total_labor_cost,
-            "total_cost": total_initial_cost
-        }
-    
-    # Visualizzazione Risultati
-    if st.session_state.get('t5_results'):
-        results = st.session_state['t5_results']
-        
-        st.divider()
-        st.subheader(get_text("t5_total_cost"))
-        
-        col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
-        
-        col_m1.metric(get_text("t5_wallbox_cost"), f"€ {results['charger_cost']:,.0f}".replace(",", "."))
-        col_m2.metric(get_text("t5_material_cost"), f"€ {results['material_cables_cost']:,.0f}".replace(",", "."))
-        col_m3.metric(get_text("t5_labor_cost"), f"€ {results['labor_cost']:,.0f}".replace(",", "."))
-        col_m4.metric(get_text("t5_panel_cost"), f"€ {results['panel_cost']:,.0f}".replace(",", "."))
-        col_m5.metric(get_text("t5_engineering_cost"), f"€ {results['engineering_cost']:,.0f}".replace(",", "."))
-        
-        st.markdown(f"### {get_text('t5_total_cost')}: **€ {results['total_cost']:,.0f}**".replace(",", "."))
-
-
-# --- Main App Logic ---
-# Inizializzazione per la CORREZIONE DEL KEYERROR e i default
-if 'vehicle_groups_tab1' not in st.session_state: 
-    st.session_state['vehicle_groups_tab1'] = [
-        {'quantity': 5, 'daily_km': 100, 'consumption': 20.0, 'arrival_time': 18, 'departure_time': 8},
-        {'quantity': 3, 'daily_km': 300, 'consumption': 20.0, 'arrival_time': 10, 'departure_time': 12}
-    ]
-if 'num_groups_tab1' not in st.session_state: st.session_state['num_groups_tab1'] = 2
-
-# Inizializzazione per i risultati (per evitare KeyErrors/TypeErrors)
-if 'optimization_results' not in st.session_state: st.session_state['optimization_results'] = None
-if 't2_results' not in st.session_state: st.session_state['t2_results'] = None
-if 't3_roi_results' not in st.session_state: st.session_state['t3_roi_results'] = None
-if 't4_results' not in st.session_state: st.session_state['t4_results'] = None
-if 't5_results' not in st.session_state: st.session_state['t5_results'] = None 
-
-# Inizializzazione per i parametri tecnici (usati in Tab 2 e Tab 1 sidebar)
-if 'ac_turnover_tab1' not in st.session_state: st.session_state['ac_turnover_tab1'] = 4
-if 'dc_turnover_tab1' not in st.session_state: st.session_state['dc_turnover_tab1'] = 6
-
-st.title(get_text("app_title"))
-
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    get_text("tab1_title"), 
-    get_text("tab2_title"), 
-    get_text("tab3_title"), 
-    get_text("tab4_title"), 
-    get_text("tab5_title")
-])
-
-with tab1:
-    render_tab1()
 with tab2:
-    render_tab2()
-with tab3:
-    render_tab3()
-with tab4:
-    render_tab4()
-with tab5:
-    render_tab5()
+    st.header(get_text("infrastructure_test_header"))
+    st.markdown(get_text("infrastructure_test_intro"))
+
+    if 'risultati_tab2' not in st.session_state:
+        st.session_state.risultati_tab2 = None
+
+    with st.expander(get_text("test_params_vehicle_fleet"), expanded=True):
+        n_auto_tab2 = st.slider(get_text("num_ev_vehicles"), 0, 100, 3, key="tab2_num_auto", help=get_text("num_ev_vehicles_help"))
+        veicoli_tab2 = []
+
+        cols_tab2_veicoli = st.columns(3)
+        for i in range(n_auto_tab2):
+            with cols_tab2_veicoli[i % 3]:
+                with st.container(border=True):
+                    st.markdown(f"**{get_text('single_vehicle_test').format(i=i+1)}**")
+                    nome = st.text_input(get_text("vehicle_name").format(i=''), f"Auto_{i+1}", key=f"tab2_nome_{i}")
+                    km = st.number_input(get_text("daily_km_test"), 0, 500, 100, step=10, key=f"tab2_km_{i}", help=get_text("daily_km_test_help"))
+                    
+                    # Consumo (Wh/Km)
+                    consumo_wh_km = st.number_input(get_text("avg_consumption_test"), 100, 300, 180, step=10, key=f"tab2_cons_{i}", help=get_text("avg_consumption_test_help"))
+                    
+                    # AGGIORNAMENTO: Orari di Ingresso e Uscita (sostituzione dello slider 'sosta')
+                    orario_ingresso = st.number_input(get_text("orario_ingresso"), 0.0, 24.0, 8.0, step=0.5, key=f"tab2_ingresso_{i}", help="Ora di arrivo del veicolo (es. 8.5 per 8:30)")
+                    orario_uscita = st.number_input(get_text("orario_uscita"), 0.0, 24.0, 17.0, step=0.5, key=f"tab2_uscita_{i}", help="Ora di partenza del veicolo (es. 17.0 per 17:00)")
+
+                    consumo_kwh_km = consumo_wh_km / 1000 # Conversione in kWh/km
+                    energia_richiesta = km * consumo_kwh_km
+                    sosta_calcolata = max(0.0, orario_uscita - orario_ingresso) # Durata sosta in ore
+
+                    if orario_uscita <= orario_ingresso:
+                        st.error("L'uscita deve essere successiva all'ingresso.")
+                    
+                    veicoli_tab2.append({
+                        "nome": nome,
+                        "km": km,
+                        "consumo": consumo_kwh_km,
+                        "sosta": sosta_calcolata,
+                        "energia_richiesta": energia_richiesta,
+                        "ingresso": orario_ingresso,
+                        "uscita": orario_uscita
+                    })
+
+    with st.expander(get_text("existing_infra_config"), expanded=True):
+        st.markdown(get_text("existing_infra_intro"))
+        cols_infra = st.columns(3)
+        with cols_infra[0]:
+            ac_11_tab2 = st.number_input(get_text("ac_11_chargers"), 0, 20, 1, key="tab2_ac11", help=get_text("ac_11_chargers_help"))
+            ac_22_tab2 = st.number_input(get_text("ac_22_chargers"), 0, 20, 0, key="tab2_ac22", help=get_text("ac_22_chargers_help"))
+        with cols_infra[1]:
+            dc_30_tab2 = st.number_input(get_text("dc_30_chargers"), 0, 10, 0, key="tab2_dc30", help=get_text("dc_30_chargers_help"))
+            dc_60_tab2 = st.number_input(get_text("dc_60_chargers"), 0, 10, 0, key="tab2_dc60", help=get_text("dc_60_chargers_help"))
+        with cols_infra[2]:
+            dc_90_tab2 = st.number_input(get_text("dc_90_chargers"), 0, 10, 0, key="tab2_dc90", help=get_text("dc_90_chargers_help"))
+        ore_disponibili_tab2 = st.slider(get_text("daily_charger_hours"), 1, 24, 8, step=1, key="tab2_ore", help=get_text("daily_charger_hours_help"))
+
+    with st.expander(get_text("economic_investment_params"), expanded=False):
+        st.markdown(get_text("economic_investment_intro"))
+
+        costo_energia_interna_tab2 = st.slider(get_text("internal_energy_cost_test"), 0.10, 1.00, 0.25, step=0.05, key="tab2_costo_interno", help=get_text("internal_energy_cost_test_help"))
+        prezzo_energia_pubblica_tab2 = st.slider(get_text("external_energy_price_test"), 0.10, 1.00, 0.80, step=0.05, key="tab2_prezzo_esterno", help=get_text("external_energy_price_test_help"))
+
+        st.markdown("---")
+        st.markdown(f"**{get_text('charger_purchase_costs')}**")
+        col1_inv, col2_inv, col3_inv = st.columns(3)
+        with col1_inv:
+            inv_ac11 = st.number_input(get_text("investment_ac11"), 500, 5000, 1500, step=100, key="tab2_inv_ac11", help=get_text("investment_ac11_help"))
+            inv_ac22 = st.number_input(get_text("investment_ac22"), 1000, 8000, 2500, step=100, key="tab2_inv_ac22", help=get_text("investment_ac22_help"))
+        with col2_inv:
+            inv_dc30 = st.number_input(get_text("investment_dc30"), 5000, 20000, 10000, step=500, key="tab2_inv_dc30", help=get_text("investment_dc30_help"))
+            inv_dc60 = st.number_input(get_text("investment_dc60"), 10000, 40000, 20000, step=1000, key="tab2_inv_dc60", help=get_text("investment_dc60_help"))
+        with col3_inv:
+            inv_dc90 = st.number_input(get_text("investment_dc90"), 15000, 60000, 30000, step=1000, key="tab2_inv_dc90", help=get_text("investment_dc90_help"))
+
+        costi_investimento_colonnine = {
+            'ac_11': inv_ac11,
+            'ac_22': inv_ac22,
+            'dc_30': inv_dc30,
+            'dc_60': inv_dc60,
+            'dc_90': inv_dc90,
+        }
+
+    if st.button(get_text("run_infra_analysis"), key="tab2_analisi", type="primary"):
+        if not veicoli_tab2:
+            st.warning(get_text("add_vehicle_warning_analysis"))
+        else:
+            with st.spinner(get_text("analysis_execution")):
+                risultati_tab2_temp = calculate_infrastructure_test(
+                    veicoli_tab2,
+                    {'ac_11': ac_11_tab2, 'ac_22': ac_22_tab2, 'dc_30': dc_30_tab2, 'dc_60': dc_60_tab2, 'dc_90': dc_90_tab2},
+                    costo_energia_interna_tab2,
+                    prezzo_energia_pubblica_tab2,
+                    ore_disponibili_tab2,
+                    costi_investimento_colonnine
+                )
+                st.session_state.risultati_tab2 = risultati_tab2_temp 
+
+            st.success(get_text("analysis_complete_success"))
+            st.divider()
+            st.subheader(get_text("performance_summary"))
+
+            risultati_tab2 = st.session_state.risultati_tab2
+
+            # Visualizzazione Riepilogo
+            col1_tab2, col2_tab2, col3_tab2 = st.columns(3)
+            col1_tab2.metric(get_text("total_energy_requested"), f"{risultati_tab2['energia_totale']:.1f} kWh", help=get_text("total_energy_requested_help"))
+            col2_tab2.metric(get_text("internal_energy_charged_test"), f"{risultati_tab2['energia_caricata']:.1f} kWh", f"{(risultati_tab2['energia_caricata']/risultati_tab2['energia_totale']*100 if risultati_tab2['energia_totale']>0 else 0):.1f}%", help=get_text("internal_energy_charged_test_help"))
+            col3_tab2.metric(get_text("external_energy_to_charge"), f"{risultati_tab2['energia_esterna']:.1f} kWh", f"{(risultati_tab2['energia_esterna']/risultati_tab2['energia_totale']*100 if risultati_tab2['energia_totale']>0 else 0):.1f}%", help=get_text("external_energy_to_charge_help"))
+            
+            col4_tab2, col5_tab2, col6_tab2 = st.columns(3)
+            col4_tab2.metric(get_text("estimated_time_lost"), f"{risultati_tab2['tempo_esterno_stimato']:.1f} h/{get_text('day_label')}", help=get_text("estimated_time_lost_help"))
+            col5_tab2.metric(get_text("daily_external_charge_cost"), f"€{risultati_tab2['costo_ricariche_esterne']:.2f}", help=get_text("daily_external_charge_cost_help"))
+            col6_tab2.metric(get_text("avg_charger_utilization_rate"), f"{risultati_tab2['tasso_utilizzo']:.1f}%", help=get_text("avg_charger_utilization_rate_help"))
+
+            col7_tab2, col8_tab2, _ = st.columns(3) # Colonna 9 intenzionalmente vuota
+            col7_tab2.metric(get_text("fully_charged_cars"), f"{risultati_tab2['auto_caricate_completamente']}/{risultati_tab2['num_veicoli_totali']}", help=get_text("fully_charged_cars_help"))
+            col8_tab2.metric(get_text("internal_operating_cost"), f"€{risultati_tab2['costo_operativo_interno']:.2f}/{get_text('day_label')}", help=get_text("internal_operating_cost_help"))
+            
+            col_roi_1, col_roi_2 = st.columns(2)
+            col_roi_1.metric(get_text("estimated_annual_savings_test"), f"€{risultati_tab2['risparmio_annuo_stimato']:.2f}", help=get_text("estimated_annual_savings_test_help"))
+            col_roi_2.metric(get_text("roi_test"), f"{risultati_tab2['ROI']:.1f}%", help=get_text("roi_test_help"))
+
+            # Visualizzazione Dettagli (Tabs)
+            tab2_1, tab2_2, tab2_3, tab2_4 = st.tabs([get_text("charger_utilization_details"), get_text("vehicle_charge_status_test"), get_text("energy_req_vs_charged_test"), get_text("operating_costs_analysis_test")])
+
+            with tab2_1:
+                st.markdown(get_text("hourly_utilization_details"))
+                if risultati_tab2['utilizzo_colonnine_ore']:
+                    df_utilizzo = pd.DataFrame({
+                        "ChargerType": list(risultati_tab2['utilizzo_colonnine_ore'].keys()),
+                        "HoursUsed": list(risultati_tab2['utilizzo_colonnine_ore'].values())
+                    })
+                    fig = px.bar(df_utilizzo, x="ChargerType", y="HoursUsed", title=get_text("hourly_utilization_chart_title"), color="ChargerType", color_discrete_sequence=px.colors.qualitative.Dark24, template="plotly_white")
+                    fig.update_xaxes(title_text=get_text("charger_type_label"))
+                    fig.update_yaxes(title_text=get_text("hours_used_label"))
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning(get_text("no_chargers_configured_analysis"))
+                
+                st.markdown(f"##### {get_text('gantt_planning_details')}")
+                st.markdown(get_text("gantt_planning_intro"))
+                if risultati_tab2['prenotazioni']:
+                    df_prenotazioni = pd.DataFrame(risultati_tab2['prenotazioni'])
+                    
+                    df_prenotazioni['StartTime'] = df_prenotazioni['inizio'].apply(lambda h: datetime(2023,1,1) + timedelta(hours=h))
+                    df_prenotazioni['EndTime'] = df_prenotazioni['fine'].apply(lambda h: datetime(2023,1,1) + timedelta(hours=h))
+
+                    tab2_color_map = {
+                        'ac_11': '#808080', 'ac_22': '#666666',
+                        'dc_30': '#0000FF', 'dc_60': '#FF4500', 'dc_90': '#FF0000',
+                        'dc_20': '#00FF00', 'dc_40': '#FFA500' 
+                    }
+                    
+                    fig = px.timeline(
+                        df_prenotazioni,
+                        x_start="StartTime",
+                        x_end="EndTime",
+                        y="colonnina",
+                        color="tipo_colonnina",
+                        title=get_text("gantt_chart_title"),
+                        hover_name="veicolo",
+                        hover_data={"StartTime": False, "EndTime": False, "tipo_colonnina": False, "colonnina": True, "veicolo": True, "energia": ':.1f kWh'},
+                        color_discrete_map=tab2_color_map,
+                        template="plotly_white"
+                    )
+                    fig.update_yaxes(title_text=get_text("charger"))
+                    fig.update_xaxes(title_text=get_text("hour_of_day"), tickformat="%H:%M")
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    st.dataframe(
+                        df_prenotazioni[["veicolo", "colonnina", 'inizio', 'fine', 'energia']],
+                        column_config={
+                            "veicolo": st.column_config.Column(get_text("vehicle_label")),
+                            "colonnina": st.column_config.Column(get_text("charger")),
+                            "inizio": st.column_config.NumberColumn(get_text("start_time_label"), format="%.1f h"),
+                            "fine": st.column_config.NumberColumn(get_text("end_time_label"), format="%.1f h"),
+                            "energia": st.column_config.NumberColumn(get_text("energy_kwh_label"), format="%.1f kWh")
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
+                else:
+                    st.info(get_text("no_charges_recorded"))
+
+            with tab2_2:
+                st.markdown(f"#### {get_text('vehicle_charge_status_test')}")
+                if st.session_state.risultati_tab2 and 'veicoli_simulati' in st.session_state.risultati_tab2:
+                    
+                    charged_count_tab2 = sum(1 for v in st.session_state.risultati_tab2['veicoli_simulati'] if v['energia_richiesta'] - v['energia_rimanente'] >= v['energia_richiesta'] * 0.99)
+                    partial_count_tab2 = sum(1 for v in st.session_state.risultati_tab2['veicoli_simulati'] if v['energia_richiesta'] - v['energia_rimanente'] > 0.01 and v['energia_richiesta'] - v['energia_rimanente'] < v['energia_richiesta'] * 0.99)
+                    unassigned_count_tab2 = sum(1 for v in st.session_state.risultati_tab2['veicoli_simulati'] if v['energia_richiesta'] - v['energia_rimanente'] <= 0.01)
+
+                    df_charge_status_tab2 = pd.DataFrame({
+                        "ChargeStatus": [get_text("fully_charged"), get_text("partially_charged"), get_text("not_charged")],
+                        "NumVehicles": [charged_count_tab2, partial_count_tab2, unassigned_count_tab2]
+                    })
+                    fig_charge_status_pie_tab2 = px.pie(df_charge_status_tab2, values="NumVehicles", names="ChargeStatus", title=get_text("vehicle_charge_status_chart_title"), color_discrete_sequence=px.colors.qualitative.Set2, template="plotly_white")
+                    st.plotly_chart(fig_charge_status_pie_tab2, use_container_width=True)
+                else:
+                    st.info(get_text("run_analysis_to_view_status"))
+
+            with tab2_3:
+                st.markdown(f"#### {get_text('energy_req_vs_charged_test')}")
+                if st.session_state.risultati_tab2 and 'veicoli_simulati' in st.session_state.risultati_tab2:
+                    df_veicoli_charged_tab2 = pd.DataFrame([
+                        {
+                            "Vehicle": v["nome"],
+                            "EnergyRequested": v["energia_richiesta"],
+                            "InternalEnergy": v["energia_richiesta"] - v["energia_rimanente"]
+                        } for v in st.session_state.risultati_tab2['veicoli_simulati']
+                    ])
+                    # Top 10 veicoli per energia richiesta
+                    df_veicoli_charged_tab2 = df_veicoli_charged_tab2.sort_values(by="EnergyRequested", ascending=False).head(10)
+
+                    if not df_veicoli_charged_tab2.empty:
+                        fig_energy_comparison_tab2 = px.bar(df_veicoli_charged_tab2, x="Vehicle", y=["EnergyRequested", "InternalEnergy"], barmode='group', title=get_text("energy_comparison_chart_title"), template="plotly_white")
+                        fig_energy_comparison_tab2.update_xaxes(title_text=get_text("vehicle_label"))
+                        fig_energy_comparison_tab2.update_yaxes(title_text=get_text("energy_kwh_label"))
+                        st.plotly_chart(fig_energy_comparison_tab2, use_container_width=True)
+                    else:
+                        st.info(get_text("no_vehicle_data_for_chart"))
+                else:
+                    st.info(get_text("run_analysis_to_view_comparison"))
+
+            with tab2_4:
+                st.markdown(f"#### {get_text('operating_costs_analysis_test')}")
+                if st.session_state.risultati_tab2:
+                    df_cost_breakdown_tab2 = pd.DataFrame({
+                        "Type": [get_text("internal_operating_cost"), get_text("daily_external_charge_cost")],
+                        "Cost": [st.session_state.risultati_tab2['costo_operativo_interno'], st.session_state.risultati_tab2['costo_ricariche_esterne']]
+                    })
+                    fig_cost_breakdown_tab2 = px.pie(df_cost_breakdown_tab2, values="Cost", names="Type", title=get_text("operating_costs_distribution_chart_title"), color_discrete_sequence=px.colors.qualitative.Pastel, template="plotly_white")
+                    st.plotly_chart(fig_cost_breakdown_tab2, use_container_width=True)
+                else:
+                    st.info(get_text("run_analysis_to_view_costs"))
+
+            with st.expander(get_text("optimization_suggestions"), expanded=True):
+                if st.session_state.risultati_tab2:
+                    risultati_tab2 = st.session_state.risultati_tab2
+
+                    if risultati_tab2['energia_esterna'] > 0:
+                        st.warning(get_text("improvement_opportunity").format(energy=risultati_tab2['energia_esterna']))
+
+                    if risultati_tab2['auto_caricate_completamente'] < risultati_tab2['num_veicoli_totali']:
+                        st.warning(get_text("fleet_coverage").format(charged=risultati_tab2['auto_caricate_completamente'], total=risultati_tab2['num_veicoli_totali']))
+
+                    if risultati_tab2['tasso_utilizzo'] > 80:
+                        st.warning(get_text("high_utilization_warning").format(utilization=risultati_tab2['tasso_utilizzo']))
+                    elif risultati_tab2['tasso_utilizzo'] < 40:
+                        st.info(get_text("low_utilization_info").format(utilization=risultati_tab2['tasso_utilizzo']))
+                    else:
+                        st.success(get_text("well_balanced_utilization"))
+
+                    if risultati_tab2['investimento_totale_iniziale'] > 0:
+                        if risultati_tab2['ROI'] > 15:
+                            st.success(get_text("good_roi_success").format(roi=risultati_tab2['ROI']))
+                        elif risultati_tab2['ROI'] > 0:
+                            st.info(get_text("positive_roi_info").format(roi=risultati_tab2['ROI']))
+                        else:
+                            st.error(get_text("negative_roi_error").format(roi=risultati_tab2['ROI']))
+                    else:
+                        st.info(get_text("roi_not_calculable"))
+                else:
+                    st.info(get_text("run_analysis_to_view_suggestions"))
+    else:
+        st.info(get_text("configure_and_calculate"))
